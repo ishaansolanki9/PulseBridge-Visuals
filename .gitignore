@@ -1,0 +1,8 @@
+node_modules/
+app/dist/
+src-tauri/target/
+.DS_Store
+*.log
+transfer-ready/
+.idea/
+.vscode/

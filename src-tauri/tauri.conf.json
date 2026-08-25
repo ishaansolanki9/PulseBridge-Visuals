@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "PulseBridge",
+  "mainBinaryName": "PulseBridge Visuals",
+  "version": "0.1.0",
+  "identifier": "com.pulsebridge.desktop",
+  "build": {
+    "beforeDevCommand": "npm run dev --workspace @pulsebridge/app",
+    "devUrl": "http://127.0.0.1:1420",
+    "beforeBuildCommand": "npm run build --workspace @pulsebridge/app",
+    "frontendDist": "../app/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "PulseBridge Visuals",
+        "width": 960,
+        "height": 720,
+        "minWidth": 820,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false,
+        "backgroundColor": "#07090d"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; script-src 'self'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "category": "Music",
+    "shortDescription": "Live Rekordbox-reactive fullscreen light visuals",
+    "longDescription": "PulseBridge Visuals turns a second display into a live music-reactive light show driven by Rekordbox or a selected Windows audio output.",
+    "icon": ["icons/icon.ico"],
+    "windows": {
+      "webviewInstallMode": {
+        "type": "downloadBootstrapper",
+        "silent": true
+      },
+      "nsis": {
+        "installMode": "currentUser",
+        "installerIcon": "icons/icon.ico",
+        "languages": ["English"]
+      }
+    }
+  }
+}

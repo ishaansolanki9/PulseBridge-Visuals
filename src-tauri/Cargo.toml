@@ -1,0 +1,48 @@
+[package]
+name = "pulsebridge"
+version = "0.1.0"
+description = "Music-reactive fullscreen shader visuals for a second display"
+authors = ["PulseBridge contributors"]
+edition = "2021"
+rust-version = "1.87"
+
+[lib]
+name = "pulsebridge_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+bytemuck = { version = "1.25.2", features = ["derive"] }
+crossbeam-queue = "0.3.12"
+pollster = "1.0.1"
+rustfft = "6.4.1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tauri = { version = "2", features = ["unstable"] }
+wgpu = { version = "30.0.0", default-features = false, features = ["std", "parking_lot", "dx12", "metal", "wgsl"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = [
+    "Win32_Devices_Properties",
+    "Win32_Foundation",
+    "Win32_Media_Audio",
+    "Win32_Media_KernelStreaming",
+    "Win32_Media_Multimedia",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_Power",
+    "Win32_System_Threading",
+    "Win32_System_Variant",
+    "Win32_UI_Shell_PropertiesSystem",
+] }
+windows-core = "0.62.2"
+
+[dev-dependencies]
+naga = { version = "30.0.0", features = ["wgsl-in"] }
+
+[features]
+default = []
+link-integration = []

@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/control/controlapp.tsx","./src/control/transport.ts","./src/visuals/performancecanvas.tsx","./src/visuals/performanceoutput.tsx","./src/visuals/model.ts","./src/visuals/shader.ts","./src/visuals/types.ts","./vite.config.ts"],"version":"5.9.3"}
