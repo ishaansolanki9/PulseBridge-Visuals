@@ -181,6 +181,7 @@ struct VisualUniforms {
     effects: [f32; 4],
     scene: [f32; 4],
     modifiers: [f32; 4],
+    reactive: [f32; 4],
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -571,6 +572,12 @@ impl Renderer {
                 intensities[3],
                 delta,
             );
+            let reaction_gain =
+                (intensities[0] * current_settings.music_reactivity).clamp(0.0, 1.35);
+            let bass_hit = (smoothed.bass_hit * reaction_gain).clamp(0.0, 1.0);
+            let mid_motion = (smoothed.mid_motion * reaction_gain).clamp(0.0, 1.0);
+            let high_hit = (smoothed.high_hit * reaction_gain).clamp(0.0, 1.0);
+            let energy_rise = (smoothed.energy_rise * reaction_gain).clamp(0.0, 1.0);
             let uniforms = VisualUniforms {
                 resolution_time: [
                     renderer.config.width as f32,
@@ -591,9 +598,14 @@ impl Renderer {
                     impact_flash,
                 ],
                 visual: [
-                    (0.12 + drive * 1.38) * intensities[0] * current_settings.motion * scene.motion,
-                    (0.22 + drive * 0.78) * intensities[1] * scene.detail,
-                    0.92 + drive * 0.34 + smoothed.bass * 0.12,
+                    (0.12 + drive * 1.38 + bass_hit * 0.18 + energy_rise * 0.24)
+                        * intensities[0]
+                        * current_settings.motion
+                        * scene.motion,
+                    (0.22 + drive * 0.78 + high_hit * 0.46 + mid_motion * 0.18)
+                        * intensities[1]
+                        * scene.detail,
+                    0.92 + drive * 0.34 + smoothed.bass * 0.12 + bass_hit * 0.18,
                     (0.3 + drive * 0.7)
                         * intensities[2]
                         * current_settings.brightness
@@ -612,7 +624,7 @@ impl Renderer {
                     scene.secondary_mix,
                 ],
                 style_b: [
-                    0.82 + drive * 0.18,
+                    (0.78 + drive * 0.18 + high_hit * 0.12).clamp(0.0, 1.0),
                     drive,
                     (scene.variation_seed & 0x00ff_ffff) as f32 / 16_777_215.0,
                     (output_mode_value == 2) as u8 as f32,
@@ -620,16 +632,23 @@ impl Renderer {
                 effects: [
                     smoothed.sub,
                     smoothed.impact * intensities[3],
-                    current_settings.color_change * (0.8 + drive * 1.7),
+                    current_settings.color_change
+                        * (0.72 + drive * 1.55 + high_hit * 1.05 + smoothed.onset * 0.72),
                     drive,
                 ],
-                scene: [scene.motion, scene.detail, scene.density, scene.brightness],
+                scene: [
+                    scene.motion,
+                    scene.detail,
+                    (scene.density * (0.82 + drive * 0.18) + high_hit * 0.16).clamp(0.1, 1.0),
+                    (scene.brightness + energy_rise * 0.12).clamp(0.25, 1.0),
+                ],
                 modifiers: [
                     scene.modifiers[0].kind.map_or(-1.0, |kind| kind.id()),
                     scene.modifiers[0].strength,
                     scene.modifiers[1].kind.map_or(-1.0, |kind| kind.id()),
                     scene.modifiers[1].strength,
                 ],
+                reactive: [bass_hit, mid_motion, high_hit, energy_rise],
             };
             let presented = renderer.render(uniforms)?;
             if presented {

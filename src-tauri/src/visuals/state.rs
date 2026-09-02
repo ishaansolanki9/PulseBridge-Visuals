@@ -114,6 +114,10 @@ pub struct SmoothedVisualState {
     pub impact: f32,
     pub reactivity: f32,
     pub drive: f32,
+    pub bass_hit: f32,
+    pub mid_motion: f32,
+    pub high_hit: f32,
+    pub energy_rise: f32,
 }
 
 impl Default for SmoothedVisualState {
@@ -129,27 +133,74 @@ impl Default for SmoothedVisualState {
             impact: 0.0,
             reactivity: 0.0,
             drive: 0.0,
+            bass_hit: 0.0,
+            mid_motion: 0.0,
+            high_hit: 0.0,
+            energy_rise: 0.0,
         }
     }
 }
 
 impl SmoothedVisualState {
     pub fn update(&mut self, frame: VisualInputFrame, delta_seconds: f32) {
+        let energy_rise = (frame.energy - self.energy).max(0.0);
+        let sub_rise = (frame.sub - self.sub).max(0.0);
+        let bass_rise = (frame.bass - self.bass).max(0.0);
+        let mid_change = (frame.mids - self.mids).abs();
+        let high_rise = (frame.highs - self.highs).max(0.0);
+        let onset_accent = ((frame.onset - 0.22) / 0.78).clamp(0.0, 1.0);
+        let inferred_beat = onset_accent * (0.38 + frame.bass * 0.62);
+        let visual_beat = frame.beat_pulse.max(inferred_beat).clamp(0.0, 1.0);
+
         self.energy = envelope(self.energy, frame.energy, delta_seconds, 0.055, 0.42);
         self.sub = envelope(self.sub, frame.sub, delta_seconds, 0.045, 0.5);
         self.bass = envelope(self.bass, frame.bass, delta_seconds, 0.035, 0.3);
         self.mids = envelope(self.mids, frame.mids, delta_seconds, 0.08, 0.48);
         self.highs = envelope(self.highs, frame.highs, delta_seconds, 0.045, 0.28);
-        self.beat_pulse = envelope(
-            self.beat_pulse,
-            frame.beat_pulse,
+        self.beat_pulse = envelope(self.beat_pulse, visual_beat, delta_seconds, 0.012, 0.18);
+        self.onset = envelope(
+            self.onset,
+            frame.onset.powf(0.82),
             delta_seconds,
-            0.018,
-            0.22,
+            0.01,
+            0.15,
         );
-        self.onset = envelope(self.onset, frame.onset, delta_seconds, 0.015, 0.18);
         self.impact = envelope(self.impact, frame.impact, delta_seconds, 0.012, 0.34);
         self.reactivity = envelope(self.reactivity, frame.reactivity, delta_seconds, 0.6, 1.4);
+        let reactive = frame.reactivity.clamp(0.0, 1.0);
+        let bass_hit_target =
+            (visual_beat * 0.58 + onset_accent * 0.16 + bass_rise * 2.35 + sub_rise * 1.45)
+                .clamp(0.0, 1.0)
+                * reactive;
+        let mid_motion_target = (((frame.mids - 0.08) / 0.82).clamp(0.0, 1.0) * 0.52
+            + mid_change * 2.4
+            + onset_accent * 0.3)
+            .clamp(0.0, 1.0)
+            * reactive;
+        let high_hit_target = (high_rise * 3.1
+            + onset_accent * 0.62
+            + ((frame.highs - 0.16) / 0.84).clamp(0.0, 1.0) * 0.24)
+            .clamp(0.0, 1.0)
+            * reactive;
+        let energy_rise_target = (energy_rise * 3.4 + onset_accent * 0.32 + frame.impact * 0.42)
+            .clamp(0.0, 1.0)
+            * reactive;
+        self.bass_hit = envelope(self.bass_hit, bass_hit_target, delta_seconds, 0.012, 0.2);
+        self.mid_motion = envelope(
+            self.mid_motion,
+            mid_motion_target,
+            delta_seconds,
+            0.035,
+            0.28,
+        );
+        self.high_hit = envelope(self.high_hit, high_hit_target, delta_seconds, 0.009, 0.14);
+        self.energy_rise = envelope(
+            self.energy_rise,
+            energy_rise_target,
+            delta_seconds,
+            0.012,
+            0.26,
+        );
         let tonal_energy =
             frame.energy * 0.48 + frame.bass * 0.22 + frame.mids * 0.12 + frame.highs * 0.18;
         let continuous = ((tonal_energy - 0.1) / 0.78).clamp(0.0, 1.0);
@@ -307,5 +358,64 @@ mod tests {
         );
         assert!(state.drive > quiet_drive + 0.6);
         assert!(state.drive <= 1.0);
+    }
+
+    #[test]
+    fn frequency_changes_create_distinct_short_lived_visual_events() {
+        let mut bass_state = SmoothedVisualState::default();
+        bass_state.update(
+            VisualInputFrame {
+                energy: 0.72,
+                sub: 0.88,
+                bass: 0.96,
+                mids: 0.18,
+                highs: 0.08,
+                beat_pulse: 0.9,
+                reactivity: 1.0,
+                ..Default::default()
+            },
+            0.05,
+        );
+        assert!(bass_state.bass_hit > bass_state.high_hit);
+
+        let mut high_state = SmoothedVisualState::default();
+        high_state.update(
+            VisualInputFrame {
+                energy: 0.62,
+                sub: 0.08,
+                bass: 0.12,
+                mids: 0.32,
+                highs: 0.98,
+                onset: 0.92,
+                reactivity: 1.0,
+                ..Default::default()
+            },
+            0.05,
+        );
+        assert!(high_state.high_hit > high_state.bass_hit);
+        assert!(high_state.energy_rise > 0.2);
+    }
+
+    #[test]
+    fn no_live_audio_cannot_create_reactive_events() {
+        let mut state = SmoothedVisualState::default();
+        state.update(
+            VisualInputFrame {
+                energy: 1.0,
+                bass: 1.0,
+                mids: 1.0,
+                highs: 1.0,
+                beat_pulse: 1.0,
+                onset: 1.0,
+                impact: 1.0,
+                reactivity: 0.0,
+                ..Default::default()
+            },
+            0.1,
+        );
+        assert_eq!(state.bass_hit, 0.0);
+        assert_eq!(state.mid_motion, 0.0);
+        assert_eq!(state.high_hit, 0.0);
+        assert_eq!(state.energy_rise, 0.0);
     }
 }

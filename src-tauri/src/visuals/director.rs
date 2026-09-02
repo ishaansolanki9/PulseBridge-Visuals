@@ -244,9 +244,13 @@ pub struct SceneDirector {
     last_style: VisualStyle,
     fallback_state: MusicState,
     fallback_counter: u64,
+    auto_shuffle_counter: u64,
+    last_auto_shuffle_seconds: f32,
     recent: VecDeque<(VisualFamily, Option<VisualFamily>, u64)>,
     active_modifiers: Vec<ActiveModifier>,
     last_modifier_key: Option<u64>,
+    modifier_counter: u64,
+    last_modifier_change_seconds: f32,
 }
 
 impl SceneDirector {
@@ -260,9 +264,13 @@ impl SceneDirector {
             last_style: VisualStyle::Auto,
             fallback_state: MusicState::Quiet,
             fallback_counter: 0,
+            auto_shuffle_counter: 0,
+            last_auto_shuffle_seconds: 0.0,
             recent: VecDeque::with_capacity(HISTORY_LIMIT),
             active_modifiers: Vec::with_capacity(2),
             last_modifier_key: None,
+            modifier_counter: 0,
+            last_modifier_change_seconds: 0.0,
         }
     }
 
@@ -325,8 +333,17 @@ impl SceneDirector {
                 IntensityProfile::Balanced => 14.0,
                 IntensityProfile::Wild => 10.0,
             };
-            let shuffle_slot = (now_seconds.max(0.0) / shuffle_seconds).floor() as u64;
-            direction_key ^= mix_seed(self.session_seed, shuffle_slot).rotate_left(29);
+            let since_shuffle = (now_seconds - self.last_auto_shuffle_seconds).max(0.0);
+            let musical_boundary = frame.impact > 0.54
+                || (frame.onset > 0.62 && frame.energy > 0.34)
+                || (frame.beat_pulse > 0.66 && frame.energy > 0.58);
+            if since_shuffle >= shuffle_seconds
+                && (musical_boundary || since_shuffle >= shuffle_seconds * 1.6)
+            {
+                self.auto_shuffle_counter = self.auto_shuffle_counter.saturating_add(1);
+                self.last_auto_shuffle_seconds = now_seconds;
+            }
+            direction_key ^= mix_seed(self.session_seed, self.auto_shuffle_counter).rotate_left(29);
         }
 
         let desired = if manual {
@@ -471,9 +488,18 @@ impl SceneDirector {
             } else {
                 16.0
             };
-            let rotation = (now_seconds.max(0.0) / rotation_seconds).floor() as u64;
-            let modifier_key = direction_key ^ rotation.rotate_left(23);
-            if self.last_modifier_key != Some(modifier_key) {
+            let since_modifier = (now_seconds - self.last_modifier_change_seconds).max(0.0);
+            let musical_trigger = frame.impact > 0.42
+                || frame.onset > 0.54
+                || (frame.beat_pulse > 0.58 && frame.energy > 0.48);
+            let modifier_due = since_modifier >= rotation_seconds
+                && (musical_trigger || since_modifier >= rotation_seconds * 1.5);
+            if modifier_due {
+                self.modifier_counter = self.modifier_counter.saturating_add(1);
+                self.last_modifier_change_seconds = now_seconds;
+            }
+            let modifier_key = direction_key ^ self.modifier_counter.rotate_left(23);
+            if modifier_due && self.last_modifier_key != Some(modifier_key) {
                 self.last_modifier_key = Some(modifier_key);
                 let candidate =
                     modifier_for_phrase(phrase, mix_seed(self.session_seed, modifier_key));
@@ -897,6 +923,72 @@ mod tests {
             director.remember(VisualFamily::LiquidCircuit, None, index);
         }
         assert_eq!(director.recent.len(), HISTORY_LIMIT);
+    }
+
+    #[test]
+    fn automatic_shuffle_waits_for_music_then_has_a_bounded_fallback() {
+        let now = Instant::now();
+        let phrase = context(now, PhraseKind::Verse, 0);
+        let mut director = SceneDirector::new(17);
+        let quiet = VisualInputFrame {
+            state: MusicState::Flow,
+            energy: 0.28,
+            reactivity: 1.0,
+            ..Default::default()
+        };
+        let _ = director.update(
+            0.0,
+            now,
+            quiet,
+            &phrase,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        let _ = director.update(
+            15.0,
+            now,
+            quiet,
+            &phrase,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert_eq!(director.auto_shuffle_counter, 0);
+
+        let boundary = VisualInputFrame {
+            energy: 0.76,
+            onset: 0.88,
+            beat_pulse: 0.82,
+            reactivity: 1.0,
+            ..quiet
+        };
+        let _ = director.update(
+            15.1,
+            now,
+            boundary,
+            &phrase,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert_eq!(director.auto_shuffle_counter, 1);
+
+        let mut fallback = SceneDirector::new(18);
+        let _ = fallback.update(
+            0.0,
+            now,
+            quiet,
+            &phrase,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        let _ = fallback.update(
+            22.5,
+            now,
+            quiet,
+            &phrase,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert_eq!(fallback.auto_shuffle_counter, 1);
     }
 
     #[test]

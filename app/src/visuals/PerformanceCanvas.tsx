@@ -53,6 +53,7 @@ export function PerformanceCanvas({ settings, className = "", paused = false }: 
       effects: location("u_effects"),
       scene: location("u_scene"),
       modifiers: location("u_modifiers"),
+      reactive: location("u_reactive"),
     };
     const startedAt = performance.now();
     let lastFrame = startedAt;
@@ -128,6 +129,7 @@ export function PerformanceCanvas({ settings, className = "", paused = false }: 
       gl.uniform4f(uniforms.effects, 0.12, 0, currentSettings.colorChange * (0.8 + drive * 1.7), drive);
       gl.uniform4f(uniforms.scene, intensities[0], intensities[1], intensities[1] * 0.62, intensities[2] * 0.82);
       gl.uniform4f(uniforms.modifiers, 0, currentSettings.colorChange * 0.28, -1, 0);
+      gl.uniform4f(uniforms.reactive, 0, 0, 0, 0);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       animationFrame = requestAnimationFrame(render);
     };

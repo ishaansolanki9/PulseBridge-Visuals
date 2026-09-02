@@ -12,6 +12,7 @@ struct VisualParams {
     effects: vec4<f32>,
     scene: vec4<f32>,
     modifiers: vec4<f32>,
+    reactive: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> params: VisualParams;
@@ -56,7 +57,12 @@ fn palette_field(value: f32) -> vec3<f32> {
     let drive = params.style_b.y;
     let palette_drift = modifier_strength(0u);
     let speed = (0.02 + drive * 0.34 + palette_drift * 0.12) * params.effects.z;
-    let scaled = fract(value + params.resolution_time.z * speed + params.pulse.x * drive * 0.04) * 4.0;
+    let hit_shift = params.reactive.x * 0.07
+        + params.reactive.z * 0.19
+        + params.pulse.z * (0.06 + drive * 0.08);
+    let scaled = fract(
+        value + params.resolution_time.z * speed + params.pulse.x * drive * 0.04 + hit_shift,
+    ) * 4.0;
     let local = smoothstep(0.0, 1.0, fract(scaled));
     let segment = u32(floor(scaled));
     switch segment {
@@ -81,7 +87,11 @@ fn paint(field: f32, light: f32) -> vec3<f32> {
 
 fn phase_time(time: f32) -> f32 {
     let drive = params.style_b.y;
-    return time * (0.08 + drive * 1.92) * (0.5 + params.visual.x * 0.5);
+    let musical_nudge = params.pulse.y * (0.12 + drive * 0.42)
+        + params.reactive.x * 0.24
+        + params.reactive.z * 0.11;
+    return time * (0.08 + drive * 1.92) * (0.5 + params.visual.x * 0.5)
+        + musical_nudge;
 }
 
 fn warp_spiral(uv: vec2<f32>, time: f32) -> vec3<f32> {
@@ -383,13 +393,47 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let beat_zoom = modifier_strength(1u);
     let bass_warp = modifier_strength(2u);
     let mirror_fold = modifier_strength(5u);
+    let bass_hit = clamp(params.reactive.x, 0.0, 1.0);
+    let mid_motion = clamp(params.reactive.y, 0.0, 1.0);
+    let high_hit = clamp(params.reactive.z, 0.0, 1.0);
+    let energy_rise = clamp(params.reactive.w, 0.0, 1.0);
+
+    let source_radius = max(length(uv), 0.001);
+    let radial_direction = uv / source_radius;
+    let bass_wave = sin(
+        source_radius * (12.0 + params.scene.z * 9.0) - params.pulse.x * TAU,
+    );
+    uv += radial_direction * bass_wave * bass_hit * (0.026 + drive * 0.046);
+    let mid_bend = vec2<f32>(
+        sin(uv.y * (4.0 + params.music.z * 4.5) + phase_time(time) * 0.7),
+        sin(uv.x * (3.4 + params.music.z * 3.8) - phase_time(time) * 0.56),
+    );
+    uv += mid_bend * mid_motion * (0.024 + params.music.z * 0.038);
+    let slice_rate = 6.0 + floor(params.music.w * 8.0);
+    let slice = floor((uv.y + 1.7) * slice_rate);
+    let slice_tick = floor(time * (6.0 + high_hit * 12.0) + params.pulse.x * 4.0);
+    uv.x += (hash21(vec2<f32>(slice, slice_tick)) - 0.5)
+        * high_hit
+        * (0.026 + drive * 0.046);
+    let onset_tick = floor(time * 10.0);
+    let onset_turn = (hash21(vec2<f32>(onset_tick, params.style_b.z * 97.0)) - 0.5)
+        * params.pulse.z
+        * (0.045 + drive * 0.055);
+    uv = rotate2(uv, onset_turn);
 
     uv = rotate2(uv, sin(time * (0.16 + drive * 0.8)) * drive * 0.045);
-    uv *= 1.0 - params.pulse.y * drive * (0.025 + beat_zoom * 0.055) - params.pulse.w * 0.06;
+    uv *= 1.0
+        - params.pulse.y * (0.035 + drive * 0.06 + beat_zoom * 0.075)
+        - bass_hit * (0.055 + beat_zoom * 0.06)
+        - energy_rise * 0.028
+        - params.pulse.w * 0.06;
     uv += vec2<f32>(
         sin(uv.y * 3.2 + time * 1.1),
         sin(uv.x * 2.8 - time * 0.9),
-    ) * params.music.y * drive * (0.035 + bass_warp * 0.07);
+    ) * (
+        params.music.y * drive * (0.035 + bass_warp * 0.07)
+        + mid_motion * (0.025 + bass_warp * 0.025)
+    );
     uv.x = mix(uv.x, abs(uv.x) - 0.3, mirror_fold * drive * 0.7);
 
     let primary_id = u32(round(params.style_a.x));
@@ -400,11 +444,58 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     }
 
     let vignette = 1.0 - smoothstep(0.25, 1.55, length(uv * vec2<f32>(0.7, 1.0)));
-    color *= (0.32 + vignette * 0.78) * params.visual.w;
+    color *= (0.32 + vignette * 0.78)
+        * params.visual.w
+        * (0.86 + params.pulse.y * 0.17 + bass_hit * 0.16 + energy_rise * 0.3);
     color += palette_field(length(uv) * 0.2 + time * 0.01)
         * params.pulse.z
         * drive
         * 0.16;
+
+    let response_radius = length(uv);
+    let response_angle = atan2(uv.y, uv.x);
+    let bass_front = glow(
+        response_radius - (0.12 + fract(params.pulse.x + bass_hit * 0.08) * 1.18),
+        20.0,
+    );
+    color += palette_field(response_angle / TAU + response_radius * 0.42)
+        * bass_front
+        * bass_hit
+        * (0.22 + drive * 0.32);
+    let mid_ribs = ridge(
+        (uv.x + uv.y * 0.74) * (7.0 + params.music.z * 7.0)
+            + phase_time(time) * 0.9,
+        10.0,
+    );
+    color += palette_field(uv.x * 0.21 - uv.y * 0.13 + params.music.z * 0.24)
+        * mid_ribs
+        * mid_motion
+        * (0.08 + params.music.z * 0.13);
+    let high_cell = floor(
+        (uv + vec2<f32>(time * 0.19, -time * 0.13)) * (18.0 + params.music.w * 18.0),
+    );
+    let high_seed = hash21(high_cell);
+    let high_shard = step(0.974 - high_hit * 0.055, high_seed)
+        * ridge(time * (10.0 + high_hit * 12.0) + high_seed * TAU, 9.0);
+    color += palette_field(high_seed + response_angle / TAU)
+        * high_shard
+        * high_hit
+        * (0.24 + drive * 0.24);
+    let spectral_tint = palette_field(
+        response_angle / TAU
+            + params.music.y * 0.12
+            + params.music.z * 0.28
+            + params.music.w * 0.46,
+    );
+    let color_reaction = clamp(
+        bass_hit * 0.16
+            + mid_motion * 0.12
+            + high_hit * 0.27
+            + params.pulse.z * 0.18,
+        0.0,
+        0.55,
+    );
+    color = mix(color, color * (0.52 + spectral_tint * 1.58), color_reaction);
 
     let sparkle = modifier_strength(3u);
     if sparkle > 0.001 {

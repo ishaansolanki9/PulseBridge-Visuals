@@ -23,6 +23,7 @@ uniform vec4 u_styleB;
 uniform vec4 u_effects;
 uniform vec4 u_scene;
 uniform vec4 u_modifiers;
+uniform vec4 u_reactive;
 
 const float TAU = 6.28318530718;
 
@@ -65,7 +66,8 @@ float fbm(vec2 point) {
 }
 
 vec3 paletteField(float value) {
-  float scaled = fract(value + u_time * 0.035 * modifierStrength(0.0)) * 4.0;
+  float hitShift = u_reactive.x * 0.07 + u_reactive.z * 0.19 + u_pulse.z * 0.06;
+  float scaled = fract(value + u_time * 0.035 * modifierStrength(0.0) + hitShift) * 4.0;
   float local = smoothstep(0.0, 1.0, fract(scaled));
   int segment = int(floor(scaled));
   if (segment == 0) return mix(u_colorA, u_colorB, local);
@@ -218,12 +220,29 @@ void main() {
   float beatZoom = modifierStrength(1.0);
   float bassWarp = modifierStrength(2.0);
   float mirrorFold = modifierStrength(5.0);
+  float bassHit = clamp(u_reactive.x, 0.0, 1.0);
+  float midMotion = clamp(u_reactive.y, 0.0, 1.0);
+  float highHit = clamp(u_reactive.z, 0.0, 1.0);
+  float energyRise = clamp(u_reactive.w, 0.0, 1.0);
+  float sourceRadius = max(length(uv), 0.001);
+  vec2 radialDirection = uv / sourceRadius;
+  float bassWave = sin(sourceRadius * (12.0 + u_scene.z * 9.0) - u_pulse.x * TAU);
+  uv += radialDirection * bassWave * bassHit * (0.026 + u_styleB.y * 0.046);
+  vec2 midBend = vec2(
+    sin(uv.y * (4.0 + u_music.z * 4.5) + u_time * 0.7),
+    sin(uv.x * (3.4 + u_music.z * 3.8) - u_time * 0.56)
+  );
+  uv += midBend * midMotion * (0.024 + u_music.z * 0.038);
+  float sliceRate = 6.0 + floor(u_music.w * 8.0);
+  float slice = floor((uv.y + 1.7) * sliceRate);
+  float sliceTick = floor(u_time * (6.0 + highHit * 12.0) + u_pulse.x * 4.0);
+  uv.x += (hash21(vec2(slice, sliceTick)) - 0.5) * highHit * (0.026 + u_styleB.y * 0.046);
   float spin = overdrive * (sin(u_time * (0.9 + u_music.x * 1.8)) * (0.025 + u_music.x * 0.055) + u_pulse.y * 0.08 - u_pulse.z * 0.045);
   float spinCos = cos(spin);
   float spinSin = sin(spin);
   uv = mat2(spinCos, -spinSin, spinSin, spinCos) * uv;
-  uv *= 1.0 - u_pulse.y * (0.025 + beatZoom * 0.09 + overdrive * 0.16) - u_pulse.z * overdrive * 0.06 - u_pulse.w * 0.1;
-  uv += vec2(sin(uv.y * 3.2 + u_time * 1.3), sin(uv.x * 2.7 - u_time * 1.1)) * u_music.y * (bassWarp + overdrive * 0.85) * (0.12 + overdrive * 0.08);
+  uv *= 1.0 - u_pulse.y * (0.025 + beatZoom * 0.09 + overdrive * 0.16) - bassHit * (0.055 + beatZoom * 0.06) - energyRise * 0.028 - u_pulse.z * overdrive * 0.06 - u_pulse.w * 0.1;
+  uv += vec2(sin(uv.y * 3.2 + u_time * 1.3), sin(uv.x * 2.7 - u_time * 1.1)) * (u_music.y * (bassWarp + overdrive * 0.85) * (0.12 + overdrive * 0.08) + midMotion * (0.025 + bassWarp * 0.025));
   float jitterTick = floor(u_time * 12.0);
   uv += vec2(hash21(vec2(jitterTick, 17.0)) - 0.5, hash21(vec2(jitterTick, 43.0)) - 0.5) * overdrive * u_pulse.z * 0.065;
   float wildFold = overdrive * clamp(u_pulse.z * 0.55 + u_pulse.y * 0.25 + u_music.x * 0.12, 0.0, 0.72);
@@ -232,7 +251,7 @@ void main() {
   if (u_styleA.w > 0.001) color += visualFamily(int(round(u_styleA.y)), uv) * u_styleA.w;
   float vignette = smoothstep(1.48, 0.22, length(uv * vec2(0.68, 1.0)));
   color *= 0.3 + vignette * 0.82;
-  color *= u_visual.w * (0.88 + u_pulse.y * 0.14) * (1.0 + overdrive * (0.12 + hitForce * 0.38));
+  color *= u_visual.w * (0.88 + u_pulse.y * 0.14 + bassHit * 0.16 + energyRise * 0.3) * (1.0 + overdrive * (0.12 + hitForce * 0.38));
   color += paletteField(u_time * 0.035 * u_effects.z) * u_pulse.z * (0.045 + overdrive * 0.2);
   color += paletteField(u_time * 0.014) * u_effects.x * (0.018 + overdrive * 0.055);
   float sparkle = modifierStrength(3.0);
@@ -255,6 +274,19 @@ void main() {
   float impactFront = exp(-abs(length(uv) - (0.18 + impactLevel * 0.9)) * 18.0);
   float impactEcho = exp(-abs(length(uv) - (0.1 + impactLevel * 0.62)) * 26.0);
   color += paletteField(length(uv) * 0.25 + u_time * 0.02) * (impactFront + impactEcho * overdrive * 0.72) * impactDrive * (0.28 + overdrive * 0.34);
+  float responseRadius = length(uv);
+  float responseAngle = atan(uv.y, uv.x);
+  float bassFront = exp(-abs(responseRadius - (0.12 + fract(u_pulse.x + bassHit * 0.08) * 1.18)) * 20.0);
+  color += paletteField(responseAngle / TAU + responseRadius * 0.42) * bassFront * bassHit * (0.22 + u_styleB.y * 0.32);
+  float midRibs = pow(max(0.0, 1.0 - abs(sin((uv.x + uv.y * 0.74) * (7.0 + u_music.z * 7.0) + u_time * 0.9))), 10.0);
+  color += paletteField(uv.x * 0.21 - uv.y * 0.13 + u_music.z * 0.24) * midRibs * midMotion * (0.08 + u_music.z * 0.13);
+  vec2 highCell = floor((uv + vec2(u_time * 0.19, -u_time * 0.13)) * (18.0 + u_music.w * 18.0));
+  float highSeed = hash21(highCell);
+  float highShard = step(0.974 - highHit * 0.055, highSeed) * pow(max(0.0, 1.0 - abs(sin(u_time * (10.0 + highHit * 12.0) + highSeed * TAU))), 9.0);
+  color += paletteField(highSeed + responseAngle / TAU) * highShard * highHit * (0.24 + u_styleB.y * 0.24);
+  vec3 spectralTint = paletteField(responseAngle / TAU + u_music.y * 0.12 + u_music.z * 0.28 + u_music.w * 0.46);
+  float colorReaction = clamp(bassHit * 0.16 + midMotion * 0.12 + highHit * 0.27 + u_pulse.z * 0.18, 0.0, 0.55);
+  color = mix(color, color * (0.52 + spectralTint * 1.58), colorReaction);
   float radius = length(uv);
   float angle = atan(uv.y, uv.x);
   float wildRays = pow(max(0.0, sin(angle * 12.0 + u_time * (2.8 + u_music.x * 4.0))), 10.0);
