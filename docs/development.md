@@ -60,4 +60,4 @@ npm run tauri -- build --bundles app,dmg
 
 The macOS command requires full Xcode for DMG tooling. CI uploads unsigned artifacts; code signing/notarization and Windows Authenticode signing require credentials and are deliberately not simulated.
 
-See `WINDOWS_TRANSFER.md` for the first real-audio checklist and unsigned-development-installer warning.
+The README contains the supported Windows build and installation steps. Keep hardware validation notes here focused on development and diagnostics.

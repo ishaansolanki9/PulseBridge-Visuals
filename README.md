@@ -22,33 +22,49 @@ The laptop window is a compact controller. The performance window is a borderles
 
 There is no generated song progression in the application. No documented live Rekordbox phrase/playhead API is currently used: structural direction is labeled **audio inferred**. The browser route remains an ambient, non-reactive appearance preview; real responsiveness begins in the desktop package with live audio.
 
-## Transfer to Windows
+## Installation
 
-Read [WINDOWS_TRANSFER.md](WINDOWS_TRANSFER.md). To create the small source-transfer archive on macOS:
+### macOS
+
+PulseBridge currently builds for Apple silicon. Install Node.js 22.12 or newer, Rust 1.87 or newer, and the Xcode Command Line Tools, then run:
 
 ```bash
-./scripts/make-transfer-zip.sh
+git clone https://github.com/ishaansolanki9/PulseBridge-Visuals.git
+cd PulseBridge-Visuals
+npm ci
+npm run tauri -- build --bundles app
+codesign --force --deep --sign - "src-tauri/target/release/bundle/macos/PulseBridge.app"
+ditto "src-tauri/target/release/bundle/macos/PulseBridge.app" "/Applications/PulseBridge.app"
+open "/Applications/PulseBridge.app"
 ```
 
-On Windows, extract that archive and run:
+When prompted, allow **Screen & System Audio Recording** for Rekordbox or system-output capture, or **Microphone** for a selected input device.
+
+### Windows
+
+Clone the repository on the Windows computer, open PowerShell in the project folder, and run:
 
 ```powershell
+git clone https://github.com/ishaansolanki9/PulseBridge-Visuals.git
+cd PulseBridge-Visuals
 Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\build-windows.ps1
 ```
 
-The script installs missing Windows build prerequisites, and the completed installer is copied to `transfer-ready\PulseBridge Visuals Setup.exe`. The installed app does not require Node, Rust, Python, Visual Studio, or a terminal.
+The build script installs missing Windows prerequisites when possible, verifies the project, and creates `transfer-ready\PulseBridge Visuals Setup.exe`. Run that installer; development tools are not needed after installation. The current installer is unsigned, so Windows SmartScreen may require **More info → Run anyway**.
 
-## Local development
+After installation, open Rekordbox before PulseBridge. If Rekordbox uses ASIO, enable PC MASTER OUT and select the Windows output carrying the master audio. Run **Test connection** before starting fullscreen visuals.
 
-Requirements: Node.js 22.12+ and Rust 1.87+.
+### Local development
+
+With Node.js 22.12+ and Rust 1.87+ installed:
 
 ```bash
 npm ci
 npm run dev
 ```
 
-The local browser build is for control-window and ambient shader review only. Run the native shell with:
+The browser build is an ambient controller preview. To run the native application with live audio capture:
 
 ```bash
 npm run tauri -- dev
@@ -82,7 +98,7 @@ Windows and macOS CI compile, lint, test, and build platform bundles. These jobs
 - `src-tauri/src/diagnostics.rs` / `diagnostic_runner.rs` — durable logs/session markers and bounded connection reports
 - `src-tauri/src/visuals/` — state smoothing, palettes, base/modifier direction, and native renderer
 - `src-tauri/shaders/` — production WGSL performance shader
-- `scripts/` — transfer archive and Windows installer build
+- `scripts/` — Windows installer build
 - `docs/` — architecture, analysis, reliability, development, and visual language
 
 Ableton Link remains an optional timing enhancement and is not required for live audio. DMX, physical fixtures, a music player, waveform extraction, accounts, cloud services, and audio recording are intentionally out of scope.
