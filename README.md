@@ -16,7 +16,7 @@ The laptop window is a compact controller. The performance window is a borderles
 - Adaptive and fixed palettes, Chill/Balanced/Wild profiles, opt-in flash levels, and advanced reaction controls
 - A non-fullscreen **Test connection** workflow with Audio only, Renderer only, Full startup, and Safe renderer reports; versioned JSON, readable copy, and durable unclean-exit reconstruction
 - A proportional audio-drive dial plus distinct bass geometry waves, midrange bends, high-frequency color shards, energy-rise depth changes, and music-boundary scene transitions
-- 45 FPS native pacing, a 1440p high-resolution performance cap, suspended live control preview, first-frame readiness, and ambient audio-loss recovery
+- Tear-free 60 FPS presentation, a linearly scaled HD internal render target for high-resolution displays, suspended live control preview, first-frame readiness, and ambient audio-loss recovery
 - Native Escape/close handling, controller Stop, and `Ctrl+Alt+Shift+F12` (Windows) or `Control+Option+Shift+F12` (macOS) emergency stop
 - Persistent settings plus unsigned NSIS (`.exe`) and macOS `.app`/`.dmg` build paths
 

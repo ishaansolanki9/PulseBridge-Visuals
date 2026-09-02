@@ -11,7 +11,7 @@ use std::{
 use bytemuck::{Pod, Zeroable};
 use serde::Serialize;
 use tauri::Window;
-use wgpu::util::DeviceExt;
+use wgpu::util::{DeviceExt, TextureBlitter, TextureBlitterBuilder};
 
 use crate::{
     analysis::{SharedAnalysis, VisualInputFrame},
@@ -24,8 +24,9 @@ use super::{
     SceneDirector, SmoothedVisualState, VisualSettings,
 };
 
-const FRAME_INTERVAL: Duration = Duration::from_nanos(22_222_222);
-const MAX_RENDER_PIXELS: u64 = 2_560 * 1_440;
+const FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
+const MAX_RENDER_PIXELS: u64 = 1_920 * 1_080;
+const INTERNAL_RENDER_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 const MAIN_THREAD_SURFACE_TIMEOUT: Duration = Duration::from_secs(5);
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
@@ -236,6 +237,11 @@ struct Renderer {
     pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
+    _render_target: wgpu::Texture,
+    render_view: wgpu::TextureView,
+    render_width: u32,
+    render_height: u32,
+    blitter: TextureBlitter,
 }
 
 impl Renderer {
@@ -327,9 +333,11 @@ impl Renderer {
         let window_width = width.max(1);
         let window_height = height.max(1);
         let (render_width, render_height) = performance_render_size(window_width, window_height);
-        let config = surface
-            .get_default_config(&adapter, render_width, render_height)
+        let mut config = surface
+            .get_default_config(&adapter, window_width, window_height)
             .ok_or_else(|| "The selected display has no compatible GPU surface".to_string())?;
+        config.present_mode = wgpu::PresentMode::Fifo;
+        config.desired_maximum_frame_latency = 1;
         surface.configure(&device, &config);
 
         let shader_stage = diagnostics::begin_stage(
@@ -413,7 +421,7 @@ impl Renderer {
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: config.format,
+                    format: INTERNAL_RENDER_FORMAT,
                     blend: Some(wgpu::BlendState::REPLACE),
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -438,9 +446,17 @@ impl Renderer {
                 "presentMode": format!("{:?}", config.present_mode),
                 "windowSize": [window_width, window_height],
                 "renderSize": [render_width, render_height],
-                "targetFps": 45,
+                "targetFps": 60,
+                "presentationSizeMatchesWindow": true,
+                "linearUpscaling": render_width != window_width || render_height != window_height,
             }),
         );
+
+        let (render_target, render_view) =
+            create_render_target(&device, render_width, render_height);
+        let blitter = TextureBlitterBuilder::new(&device, config.format)
+            .sample_type(wgpu::FilterMode::Linear)
+            .build();
 
         let mut renderer = Self {
             instance,
@@ -452,6 +468,11 @@ impl Renderer {
             pipeline,
             uniform_buffer,
             bind_group,
+            _render_target: render_target,
+            render_view,
+            render_width,
+            render_height,
+            blitter,
         };
         diagnostics::event("info", "renderer.pipeline.ready", "GPU pipeline created");
         let started_at = Instant::now();
@@ -518,26 +539,35 @@ impl Renderer {
             smoothed.update(frame, delta);
 
             let size = window.inner_size().map_err(|error| error.to_string())?;
+            let window_width = size.width.max(1);
+            let window_height = size.height.max(1);
             let (render_width, render_height) =
-                performance_render_size(size.width.max(1), size.height.max(1));
-            if size.width > 0
-                && size.height > 0
-                && (render_width != renderer.config.width
-                    || render_height != renderer.config.height)
-            {
-                renderer.config.width = render_width;
-                renderer.config.height = render_height;
-                renderer
-                    .surface
-                    .configure(&renderer.device, &renderer.config);
-                diagnostics::event(
-                    "info",
-                    "renderer.surface.resize",
-                    &format!(
-                        "window={}x{} render={}x{}",
-                        size.width, size.height, render_width, render_height
-                    ),
-                );
+                performance_render_size(window_width, window_height);
+            if size.width > 0 && size.height > 0 {
+                let surface_changed = window_width != renderer.config.width
+                    || window_height != renderer.config.height;
+                if surface_changed {
+                    renderer.config.width = window_width;
+                    renderer.config.height = window_height;
+                    renderer
+                        .surface
+                        .configure(&renderer.device, &renderer.config);
+                }
+                let render_target_changed = render_width != renderer.render_width
+                    || render_height != renderer.render_height;
+                if render_target_changed {
+                    renderer.resize_render_target(render_width, render_height);
+                }
+                if surface_changed || render_target_changed {
+                    diagnostics::event(
+                        "info",
+                        "renderer.surface.resize",
+                        &format!(
+                            "window={}x{} render={}x{}",
+                            size.width, size.height, render_width, render_height
+                        ),
+                    );
+                }
             }
 
             let phrase_context = phrase
@@ -580,8 +610,8 @@ impl Renderer {
             let energy_rise = (smoothed.energy_rise * reaction_gain).clamp(0.0, 1.0);
             let uniforms = VisualUniforms {
                 resolution_time: [
-                    renderer.config.width as f32,
-                    renderer.config.height as f32,
+                    renderer.render_width as f32,
+                    renderer.render_height as f32,
                     elapsed,
                     delta,
                 ],
@@ -721,6 +751,9 @@ impl Renderer {
                 self.config.width = width.max(1);
                 self.config.height = height.max(1);
                 self.surface.configure(&self.device, &self.config);
+                let (render_width, render_height) =
+                    performance_render_size(self.config.width, self.config.height);
+                self.resize_render_target(render_width, render_height);
                 return Ok(false);
             }
             wgpu::CurrentSurfaceTexture::Outdated => {
@@ -746,7 +779,7 @@ impl Renderer {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Performance frame"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &view,
+                    view: &self.render_view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -760,10 +793,43 @@ impl Renderer {
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.draw(0..3, 0..1);
         }
+        self.blitter
+            .copy(&self.device, &mut encoder, &self.render_view, &view);
         self.queue.submit(Some(encoder.finish()));
         self.queue.present(frame);
         Ok(true)
     }
+
+    fn resize_render_target(&mut self, width: u32, height: u32) {
+        let (render_target, render_view) = create_render_target(&self.device, width, height);
+        self._render_target = render_target;
+        self.render_view = render_view;
+        self.render_width = width;
+        self.render_height = height;
+    }
+}
+
+fn create_render_target(
+    device: &wgpu::Device,
+    width: u32,
+    height: u32,
+) -> (wgpu::Texture, wgpu::TextureView) {
+    let texture = device.create_texture(&wgpu::TextureDescriptor {
+        label: Some("PulseBridge performance render target"),
+        size: wgpu::Extent3d {
+            width: width.max(1),
+            height: height.max(1),
+            depth_or_array_layers: 1,
+        },
+        mip_level_count: 1,
+        sample_count: 1,
+        dimension: wgpu::TextureDimension::D2,
+        format: INTERNAL_RENDER_FORMAT,
+        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+        view_formats: &[],
+    });
+    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+    (texture, view)
 }
 
 #[cfg(target_os = "windows")]
@@ -1121,9 +1187,9 @@ mod tests {
     }
 
     #[test]
-    fn performance_surface_keeps_hd_and_caps_four_k_near_1440p() {
+    fn performance_surface_keeps_hd_and_caps_four_k_at_hd() {
         assert_eq!(performance_render_size(1_920, 1_080), (1_920, 1_080));
         let (width, height) = performance_render_size(3_840, 2_160);
-        assert_eq!((width, height), (2_560, 1_440));
+        assert_eq!((width, height), (1_920, 1_080));
     }
 }

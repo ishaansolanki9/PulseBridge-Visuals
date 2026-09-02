@@ -74,11 +74,15 @@ fn palette_field(value: f32) -> vec3<f32> {
 }
 
 fn ridge(value: f32, sharpness: f32) -> f32 {
-    return pow(max(0.0, 1.0 - abs(sin(value))), sharpness);
+    let raw = pow(max(0.0, 1.0 - abs(sin(value))), sharpness);
+    let detail_visibility = 1.0 - smoothstep(0.72, 1.9, fwidth(value));
+    return raw * detail_visibility;
 }
 
 fn glow(value: f32, sharpness: f32) -> f32 {
-    return exp(-abs(value) * sharpness);
+    let raw = exp(-abs(value) * sharpness);
+    let detail_visibility = 1.0 - smoothstep(0.7, 2.1, fwidth(value) * sharpness);
+    return raw * detail_visibility;
 }
 
 fn paint(field: f32, light: f32) -> vec3<f32> {
@@ -471,13 +475,23 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         * mid_ribs
         * mid_motion
         * (0.08 + params.music.z * 0.13);
-    let high_cell = floor(
-        (uv + vec2<f32>(time * 0.19, -time * 0.13)) * (18.0 + params.music.w * 18.0),
+    let shard_count = 16.0 + floor(params.music.w * 14.0);
+    let high_ray = ridge(
+        response_angle * shard_count
+            + sin(response_radius * 7.0 - phase_time(time)) * 1.15
+            + time * (2.2 + high_hit * 3.4),
+        16.0,
     );
-    let high_seed = hash21(high_cell);
-    let high_shard = step(0.974 - high_hit * 0.055, high_seed)
-        * ridge(time * (10.0 + high_hit * 12.0) + high_seed * TAU, 9.0);
-    color += palette_field(high_seed + response_angle / TAU)
+    let high_gate = 0.28
+        + ridge(
+            response_radius * 19.0 - phase_time(time) * 1.8 + params.style_b.z * TAU,
+            11.0,
+        ) * 0.72;
+    let high_shard = high_ray
+        * high_gate
+        * smoothstep(0.08, 0.34, response_radius)
+        * (1.0 - smoothstep(1.1, 1.58, response_radius));
+    color += palette_field(response_angle / TAU * 4.0 + response_radius * 0.3)
         * high_shard
         * high_hit
         * (0.24 + drive * 0.24);

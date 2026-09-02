@@ -280,10 +280,13 @@ void main() {
   color += paletteField(responseAngle / TAU + responseRadius * 0.42) * bassFront * bassHit * (0.22 + u_styleB.y * 0.32);
   float midRibs = pow(max(0.0, 1.0 - abs(sin((uv.x + uv.y * 0.74) * (7.0 + u_music.z * 7.0) + u_time * 0.9))), 10.0);
   color += paletteField(uv.x * 0.21 - uv.y * 0.13 + u_music.z * 0.24) * midRibs * midMotion * (0.08 + u_music.z * 0.13);
-  vec2 highCell = floor((uv + vec2(u_time * 0.19, -u_time * 0.13)) * (18.0 + u_music.w * 18.0));
-  float highSeed = hash21(highCell);
-  float highShard = step(0.974 - highHit * 0.055, highSeed) * pow(max(0.0, 1.0 - abs(sin(u_time * (10.0 + highHit * 12.0) + highSeed * TAU))), 9.0);
-  color += paletteField(highSeed + responseAngle / TAU) * highShard * highHit * (0.24 + u_styleB.y * 0.24);
+  float shardCount = 16.0 + floor(u_music.w * 14.0);
+  float highRayPhase = responseAngle * shardCount + sin(responseRadius * 7.0 - u_time) * 1.15 + u_time * (2.2 + highHit * 3.4);
+  float highRay = pow(max(0.0, 1.0 - abs(sin(highRayPhase))), 16.0) * (1.0 - smoothstep(0.72, 1.9, fwidth(highRayPhase)));
+  float highGatePhase = responseRadius * 19.0 - u_time * 1.8 + u_styleB.z * TAU;
+  float highGate = 0.28 + pow(max(0.0, 1.0 - abs(sin(highGatePhase))), 11.0) * (1.0 - smoothstep(0.72, 1.9, fwidth(highGatePhase))) * 0.72;
+  float highShard = highRay * highGate * smoothstep(0.08, 0.34, responseRadius) * (1.0 - smoothstep(1.1, 1.58, responseRadius));
+  color += paletteField(responseAngle / TAU * 4.0 + responseRadius * 0.3) * highShard * highHit * (0.24 + u_styleB.y * 0.24);
   vec3 spectralTint = paletteField(responseAngle / TAU + u_music.y * 0.12 + u_music.z * 0.28 + u_music.w * 0.46);
   float colorReaction = clamp(bassHit * 0.16 + midMotion * 0.12 + highHit * 0.27 + u_pulse.z * 0.18, 0.0, 0.55);
   color = mix(color, color * (0.52 + spectralTint * 1.58), colorReaction);
