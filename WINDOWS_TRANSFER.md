@@ -37,18 +37,22 @@ The current development installer is unsigned, so Windows SmartScreen may show a
 2. Confirm Windows and Rekordbox are sending music to the intended TV, interface, or speakers.
 3. Open Rekordbox before PulseBridge so it is detected automatically.
 4. Open PulseBridge Visuals and select the TV under **Output display**.
-5. Choose **Rekordbox (Detected)** for process-only capture. If it is unavailable, choose the exact Windows output Rekordbox is using.
-6. Leave **White flash** set to **Off** for the safest first run.
-7. Press **Start live visuals**, then play your own file in Rekordbox.
+5. Choose **Rekordbox detected (Safe Windows-output capture)** for the stable default, or choose the exact Windows output carrying PC MASTER OUT. Diagnostics still distinguish process detection, the selected capture route, and samples flowing. Process-specific capture remains disabled in normal builds until it passes the affected-laptop crash matrix.
+6. Before fullscreen, run **Test connection → Audio only**, then **Renderer only**, then **Full startup**. Copy the JSON for each mode and record its report ID.
+7. Leave **White flash** set to **Off** for the safest first run.
+8. Press **Start live visuals**, then play your own file in Rekordbox.
 
 Expected behavior:
 
 - The TV is only abstract color and motion—no controls, text, waveform, or error messages.
-- Bass changes displacement and expansion; transient hits produce pulses; builds increase tension; major impacts can trigger Burst behavior; quieter passages relax toward Fluid.
+- Phrase source initially reads **Audio inferred** (not Rekordbox phrase data). Bass/transients animate the active scene; inferred intros/verses/builds/choruses/breakdowns direct larger coherent scene changes.
 - If audio stops or the device changes, the TV fades to ambient motion while the laptop window reports recovery. It does not replay old reactions.
 - **Ambient**, **Black screen**, and **Stop visuals** remain available from the laptop window.
+- Focused `Escape`, the normal Windows close shortcut, and emergency `Ctrl+Alt+Shift+F12` stop only the visual session and return focus to the controller.
 
-Process-specific loopback is a Windows API available on newer Windows builds. PulseBridge automatically attempts default-output loopback if Rekordbox-only activation fails. Selecting an output device directly is the most compatible fallback.
+Process-specific loopback is a Windows API available on newer Windows builds, but it is not used by the normal build because the affected laptop repeatedly terminated with native heap corruption before its asynchronous activation callback returned. The Rekordbox-aware selection now uses stable default-output loopback. Selecting the exact output device directly remains the most compatible route.
+
+If Start fails, PulseBridge must remain open and display a concise error, **Retry live visuals**, the copyable report, and **Open logs folder**. Record the report/session ID, error code, selected adapter/backend, Windows build, Rekordbox version, and route. The code changes alone do not confirm the reported Windows termination is fixed; the affected laptop's reports/Event Viewer evidence must identify the failing stage.
 
 ## Real-party validation checklist
 
@@ -59,13 +63,16 @@ Because no synthetic song is bundled, do these checks with your real files:
 - Stop/start Rekordbox playback and change the selected Windows output once.
 - Disconnect/reconnect HDMI before the event and verify PulseBridge can be stopped and restarted cleanly.
 - Leave a representative playlist running for the full expected party duration and watch for memory growth, accumulated lag, or a frozen output.
+- Start/Stop 20 times, including rapid repeat clicks; force a bad display, process-capture failure, silence, Rekordbox exit/restart, output-device change, and HDMI disconnect/reconnect.
+- Check 1080p and 4K at 16:9 plus at least one 16:10/4:3/ultrawide surface. Confirm no negative-X center seam, desktop, labels, debug text, white startup frame, or old impact replay.
+- Exercise quiet intros, verses, builds, choruses/drops, breakdowns, bridges, outros, loops, seeks, pause, deck changes, and abrupt track transitions. Confirm macro changes stay coherent and Auto never piles up more than two families.
 
 The app never records or writes captured audio to disk. Its PCM and feature histories are bounded and kept only in memory.
 
 ## If the visuals do not react
 
 - Confirm a track is visibly playing in Rekordbox and click the audio-source refresh button in PulseBridge.
-- Try **Rekordbox (Detected)** first, then choose the exact Windows output that is carrying the master audio.
+- Try **Rekordbox detected (Safe Windows-output capture)** and verify that **Samples flowing** appears; otherwise choose the exact Windows output carrying the master audio.
 - If a DJ controller is using an ASIO path that bypasses normal Windows audio, open Rekordbox **Preferences → Audio** and enable **Output audio from the computer's built-in speakers and your DJ equipment (PC MASTER OUT)** when your controller supports it. Then select that computer output in PulseBridge.
 - Confirm Windows Volume Mixer shows Rekordbox producing audio and that PulseBridge is not in Ambient or Black screen mode.
 - If the wrong monitor opens, stop visuals, use Windows **Settings → System → Display → Identify**, then select the numbered TV and start again.

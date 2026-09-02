@@ -29,11 +29,11 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["nsis"],
+    "targets": ["nsis", "app", "dmg"],
     "category": "Music",
     "shortDescription": "Live Rekordbox-reactive fullscreen light visuals",
-    "longDescription": "PulseBridge Visuals turns a second display into a live music-reactive light show driven by Rekordbox or a selected Windows audio output.",
-    "icon": ["icons/icon.ico"],
+    "longDescription": "PulseBridge Visuals turns a second display into a live music-reactive light show driven by Rekordbox or a supported system audio route on Windows and macOS.",
+    "icon": ["icons/icon.ico", "icons/icon.icns", "icons/icon.png"],
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper",

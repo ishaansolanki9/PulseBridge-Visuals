@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>NSAudioCaptureUsageDescription</key>
+  <string>PulseBridge captures outgoing system or Rekordbox audio to drive live visuals. Audio is analyzed in memory and is never recorded or saved.</string>
+  <key>NSMicrophoneUsageDescription</key>
+  <string>PulseBridge can use a selected microphone or line-in device to drive live visuals. Audio is analyzed in memory and is never recorded or saved.</string>
+</dict>
+</plist>

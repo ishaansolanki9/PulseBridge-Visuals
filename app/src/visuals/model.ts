@@ -1,18 +1,9 @@
-import type { IntensityProfile, PaletteName, VisualStyle } from "./types";
-
-export function styleWeights(style: VisualStyle): [number, number, number, number, number] {
-  if (style === "fluid") return [1, 0, 0, 0, 0];
-  if (style === "waves") return [0, 1, 0, 0, 0];
-  if (style === "pulse") return [0, 0, 1, 0, 0];
-  if (style === "tunnel") return [0, 0, 0, 1, 0];
-  if (style === "burst") return [0, 0, 0, 0, 1];
-  return [0.94, 0.03, 0.02, 0.01, 0];
-}
+import type { IntensityProfile, PaletteName } from "./types";
 
 export function intensityValues(profile: IntensityProfile): [number, number, number, number] {
   if (profile === "chill") return [0.66, 0.62, 0.72, 0.45];
-  if (profile === "wild") return [1.12, 1.25, 1.2, 1];
-  return [0.9, 0.92, 1, 0.78];
+  if (profile === "wild") return [1.35, 1.4, 1.25, 1];
+  return [1.04, 0.98, 1, 0.78];
 }
 
 export function paletteColors(name: PaletteName): number[][] {

@@ -4,7 +4,7 @@
 
 The browser route (`/?performance=1`) renders quiet ambient motion with zero beat, onset, impact, and audio reactivity. It exists only to review shader appearance and must remain text-free. It is not an audio test path.
 
-The Windows Tauri application owns the real path: Windows audio → bounded PCM ring → Rust analysis → latest visual snapshot → native `wgpu` renderer. React only reads status and writes user settings.
+The Windows/macOS Tauri application owns the real path: platform audio → bounded PCM ring → Rust analysis + optional phrase context → SceneDirector → native `wgpu` renderer. React reads status, writes settings, and starts/cancels bounded diagnostics.
 
 Run the browser UI:
 
@@ -18,26 +18,46 @@ Run the desktop shell:
 npm run tauri -- dev
 ```
 
+Debug builds include an opt-in native Start/first-present/Stop smoke path. It uses the real `PerformanceManager` and is compiled out of release builds:
+
+```bash
+PULSEBRIDGE_SMOKE_AUTOSTART=1 "src-tauri/target/debug/bundle/macos/PulseBridge.app/Contents/MacOS/PulseBridge Visuals"
+```
+
 The configured control window is 960×720 with an 820×640 minimum. Native settings are stored as `visual-settings.json` in the platform application-config directory. Raw audio is never included in that file.
 
 ## Windows audio work
 
-Open Rekordbox before PulseBridge to expose `Rekordbox (Detected)`. Process capture follows the Rekordbox process tree. If activation fails, the capture worker attempts the default Windows render endpoint; the user may also select any active render endpoint directly.
+Open Rekordbox before PulseBridge so `process:auto` can report detection, but the normal Windows build deliberately uses the stable default-output fallback. The affected laptop repeatedly raised `STATUS_HEAP_CORRUPTION` while `ActivateAudioInterfaceAsync` was pending; explicit Windows output capture completed successfully on the same GPU and audio hardware. Detection, route, sample flow, and phrase provenance remain separate.
 
-The Microsoft process-loopback API requires a sufficiently recent Windows build. Always verify the device-output fallback on the target party laptop. Native Windows work should be checked with the same commands used by `scripts/build-windows.ps1`.
+The Microsoft process-loopback API requires a sufficiently recent Windows build. It can be enabled only for isolated developer validation by setting `PULSEBRIDGE_EXPERIMENTAL_PROCESS_LOOPBACK=1`; its operation and completion handler now stay on the originating MTA thread until Windows actually invokes the callback instead of being dropped by an unsafe application timeout. Because the API has no cancellation operation, a hung experimental activation may leave that diagnostic worker waiting; normal builds never enter this path. Do not ship the opt-in as the party default until Audio-only, Renderer-only, Full startup, rapid retry, and late-callback tests pass on the affected laptop. Always verify the device-output route. Native Windows work should be checked with the same commands used by `scripts/build-windows.ps1`.
+
+## macOS audio work
+
+Core Audio process/global-output taps require macOS 14.2+. `AudioHardwareCreateProcessTap` and destroy are runtime-resolved so the app can launch on older versions and show an exact unsupported message. Physical microphone/line-in capture uses the selected stable Core Audio device ID and does not require Rekordbox. `Info.plist` contains both system-audio and microphone usage descriptions. Test permission not-requested/granted/denied/revoked states, default-output changes, input disconnect/reconnect, and Rekordbox restart on real Apple Silicon; Intel remains a required manual target if it is advertised.
 
 ## Visual work
 
-The GLSL browser shader is the quiet appearance preview. The WGSL shader is the production renderer and must validate through the `native_performance_shader_is_valid_wgsl` test. Keep the five style shapes, palette values, and high-level settings aligned, but never feed generated rhythm into the browser to make it look reactive.
+The GLSL browser shader is a quiet appearance preview and is destroyed while live output is running so it cannot compete with Rekordbox or the native GPU surface. The WGSL shader is the production renderer and must validate through the `native_performance_shader_is_valid_wgsl` test. Never feed generated rhythm into the browser to make it look reactive.
 
-Auto direction is native because it depends on musical state. Manual styles and fixed palettes can still be reviewed in the browser. White flashes default to Off; turning flashes off must preserve colored motion impacts.
+Auto direction is native because it depends on phrase/musical state and a timed random shuffle. Production family IDs 0–25 are declared by `VisualFamily` and dispatched by the WGSL `visual_family` switch; all 26 must remain distinct and available to Auto. Modifier IDs 0–7 are Palette Drift, Beat Zoom, Bass Warp, High Sparkle, Echo Trails, Mirror Fold, Chromatic Split, and Impact Bloom. White flashes default to Off; energetic motion must remain legible with flashes disabled.
+
+Whenever WGSL visual math changes, preserve the preview's palette and luminance behavior, but keep the browser preview deliberately cheaper than the production library. The WGSL validator test and the 26-distinct-family test are mandatory.
+
+Cross-target type checking from macOS may require `llvm-rc` for Tauri's Windows resources. The real Windows build remains `scripts/build-windows.ps1`; a Rust target `cargo check` is not installer or hardware validation.
 
 ## Release
 
-The NSIS bundle is enabled in `src-tauri/tauri.conf.json`. A clean Windows release command is:
+Clean unsigned bundle commands are:
 
 ```powershell
 npm run tauri -- build --bundles nsis
 ```
+
+```bash
+npm run tauri -- build --bundles app,dmg
+```
+
+The macOS command requires full Xcode for DMG tooling. CI uploads unsigned artifacts; code signing/notarization and Windows Authenticode signing require credentials and are deliberately not simulated.
 
 See `WINDOWS_TRANSFER.md` for the first real-audio checklist and unsigned-development-installer warning.

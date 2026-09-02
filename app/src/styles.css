@@ -84,6 +84,32 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--cyan); out
 .source-status i { width: 5px; height: 5px; flex: 0 0 auto; border-radius: 50%; background: #566066; }
 .source-status[data-tone="good"] { color: #83b9ae; }
 .source-status[data-tone="good"] i { background: var(--cyan); box-shadow: 0 0 8px rgba(109,255,230,.4); }
+.diagnostic-grid { margin-top: 10px; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 7px; }
+.diagnostic-item { min-width: 0; padding: 7px 9px; border: 1px solid rgba(255,255,255,.07); border-radius: 7px; background: rgba(0,0,0,.13); }
+.diagnostic-item > span { display: block; color: #667075; font: 500 7px "DM Mono", monospace; letter-spacing: .08em; text-transform: uppercase; }
+.diagnostic-item strong { min-width: 0; margin-top: 4px; display: flex; align-items: center; gap: 5px; color: #899398; font-size: 8px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.diagnostic-item i { width: 4px; height: 4px; flex: 0 0 auto; border-radius: 50%; background: #5a6266; }
+.diagnostic-item[data-tone="good"] strong, .diagnostic-item[data-tone="good"] i { color: var(--cyan); }
+.diagnostic-item[data-tone="good"] i { background: currentColor; }
+.diagnostic-item[data-tone="info"] strong { color: #8dc7ff; }
+.diagnostic-item[data-tone="info"] i { background: #8dc7ff; }
+.diagnostic-item[data-tone="warning"] strong { color: #ffd37b; }
+.diagnostic-item[data-tone="warning"] i { background: #ffd37b; }
+.connection-test { margin-top: 9px; display: grid; grid-template-columns: minmax(160px, 1fr) 150px 120px; align-items: center; gap: 8px; padding: 9px; border: 1px solid rgba(86,240,220,.11); border-radius: 8px; background: rgba(35,87,82,.08); }
+.connection-test strong, .connection-test small { display: block; }
+.connection-test strong { color: #b8c4c3; font-size: 9px; }
+.connection-test small { margin-top: 3px; color: #687373; font: 400 7px "DM Mono", monospace; }
+.connection-test select, .connection-test button, .report-actions button { height: 28px; border: 1px solid rgba(255,255,255,.12); border-radius: 5px; color: #d6dfde; background: #151a1c; font-size: 8px; }
+.connection-test button, .report-actions button { cursor: pointer; }
+.diagnostic-report { margin-top: 8px; padding: 9px; border: 1px solid rgba(255,255,255,.1); border-radius: 8px; background: rgba(0,0,0,.16); }
+.diagnostic-report > div:first-child { display: flex; gap: 8px; align-items: baseline; }
+.diagnostic-report strong { color: var(--cyan); font: 600 8px "DM Mono", monospace; }
+.diagnostic-report[data-verdict="fail"] strong { color: #ff9292; }
+.diagnostic-report[data-verdict="degraded"] strong { color: #ffd37b; }
+.diagnostic-report span { color: #8e9998; font-size: 8px; }
+.diagnostic-report code { display: block; margin-top: 6px; color: #687574; font: 400 7px "DM Mono", monospace; }
+.report-actions { margin-top: 8px; display: flex; gap: 6px; }
+.report-actions button { padding: 0 9px; }
 .source-lockup { width: 150px; min-height: 39px; padding-left: 18px; border-left: 1px solid var(--border); }
 .source-lockup > span { margin-bottom: 6px; }
 .source-lockup strong { font-size: 11px; font-weight: 600; }
@@ -142,7 +168,12 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--cyan); out
 .mode-actions button.is-active { color: #0c1715; border-color: var(--cyan); background: var(--cyan); font-weight: 700; }
 .mode-actions button.black-button.is-active { color: #fff; border-color: #5c6264; background: #000; }
 
-.control-error { margin: 10px 0 0; padding: 9px 12px; border: 1px solid rgba(255,99,99,.2); border-radius: 8px; color: #ff9a9a; background: rgba(255,50,50,.06); font-size: 10px; }
+.control-error { margin: 10px 0 0; padding: 10px 12px; border: 1px solid rgba(255,99,99,.2); border-radius: 8px; color: #ff9a9a; background: rgba(255,50,50,.06); font-size: 10px; }
+.control-error > strong, .control-error > span, .control-error > code { display: block; }
+.control-error > strong { margin-bottom: 4px; color: #ffc0c0; }
+.control-error > code { margin-top: 6px; padding: 5px 7px; overflow: hidden; border-radius: 4px; color: #c5cecd; background: rgba(0,0,0,.25); font: 400 8px "DM Mono", monospace; text-overflow: ellipsis; user-select: text; }
+.control-error > div { margin-top: 7px; display: flex; gap: 6px; }
+.control-error button { height: 27px; padding: 0 9px; border: 1px solid rgba(255,255,255,.13); border-radius: 5px; color: #d7dedd; background: #181c1e; cursor: pointer; font-size: 8px; }
 .launch-row { min-height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .launch-row > div span { display: block; color: #aab2b3; font-size: 10px; }
 .launch-row > div small { display: block; margin-top: 4px; color: #596267; font: 400 8px "DM Mono", monospace; }
@@ -161,6 +192,8 @@ button:focus-visible, select:focus-visible { outline: 2px solid var(--cyan); out
   .preview-card { height: 200px; }
   .style-options { grid-template-columns: repeat(2,1fr); }
   .setup-grid, .control-grid, .control-grid.three-up, .safety-row, .slider-grid { grid-template-columns: 1fr; }
+  .diagnostic-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .connection-test { grid-template-columns: 1fr; }
   .source-lockup { display: none; }
   .live-safety { align-items: stretch; flex-direction: column; }
   .mode-actions { display: grid; grid-template-columns: repeat(3, 1fr); }

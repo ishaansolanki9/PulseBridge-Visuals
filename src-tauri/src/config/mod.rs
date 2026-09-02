@@ -6,17 +6,39 @@ use std::{
 
 use tauri::{AppHandle, Manager};
 
-use crate::visuals::VisualSettings;
+use crate::{diagnostics, visuals::VisualSettings};
 
 pub fn load_settings(app: &AppHandle) -> VisualSettings {
     let Ok(path) = settings_path(app) else {
+        diagnostics::event(
+            "warn",
+            "settings.path.unavailable",
+            "Using default settings because the config path is unavailable",
+        );
         return VisualSettings::default();
     };
-    fs::read_to_string(path)
-        .ok()
-        .and_then(|contents| serde_json::from_str::<VisualSettings>(&contents).ok())
-        .unwrap_or_default()
-        .sanitized()
+    match fs::read_to_string(path) {
+        Ok(contents) => match serde_json::from_str::<VisualSettings>(&contents) {
+            Ok(settings) => settings.sanitized(),
+            Err(error) => {
+                diagnostics::event(
+                    "warn",
+                    "settings.parse.failed",
+                    &format!("Using defaults: {error}"),
+                );
+                VisualSettings::default()
+            }
+        },
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => VisualSettings::default(),
+        Err(error) => {
+            diagnostics::event(
+                "warn",
+                "settings.read.failed",
+                &format!("Using defaults: {error}"),
+            );
+            VisualSettings::default()
+        }
+    }
 }
 
 pub fn save_settings(app: &AppHandle, settings: &VisualSettings) -> Result<(), String> {

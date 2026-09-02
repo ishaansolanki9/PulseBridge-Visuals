@@ -84,6 +84,18 @@ pub fn smooth_palette(current: &mut Palette, target: Palette, delta_seconds: f32
 }
 
 #[cfg(test)]
+fn cyclic_palette_sample(palette: Palette, value: f32) -> [f32; 4] {
+    let wrapped = value.rem_euclid(1.0);
+    let scaled = wrapped * 4.0;
+    let segment = scaled.floor() as usize;
+    let local = scaled.fract();
+    let eased = local * local * (3.0 - 2.0 * local);
+    let start = palette[segment.min(3)];
+    let end = palette[(segment + 1) % 4];
+    std::array::from_fn(|channel| start[channel] + (end[channel] - start[channel]) * eased)
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -103,5 +115,17 @@ mod tests {
         smooth_palette(&mut current, target, 0.1);
         assert!(current[1][0] > starting_channel);
         assert!(current[1][0] < target[1][0]);
+    }
+
+    #[test]
+    fn cyclic_palette_is_continuous_across_angle_wrap() {
+        let palette = palette_for(PaletteName::Neon, MusicState::Peak);
+        let left = cyclic_palette_sample(palette, -0.000_001);
+        let right = cyclic_palette_sample(palette, 0.000_001);
+        for channel in 0..3 {
+            assert!((left[channel] - right[channel]).abs() < 0.0001);
+        }
+        assert_eq!(cyclic_palette_sample(palette, 0.0), palette[0]);
+        assert_eq!(cyclic_palette_sample(palette, 1.0), palette[0]);
     }
 }

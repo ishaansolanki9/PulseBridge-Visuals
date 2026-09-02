@@ -1,27 +1,30 @@
 import { useEffect, useRef } from "react";
 
-import { envelope, intensityValues, paletteColors, styleWeights } from "./model";
+import { envelope, intensityValues, paletteColors } from "./model";
 import { fragmentShader, vertexShader } from "./shader";
 import type { VisualSettings } from "./types";
 
 interface PerformanceCanvasProps {
   settings: VisualSettings;
   className?: string;
+  paused?: boolean;
 }
 
 interface SmoothedState {
-  styles: [number, number, number, number, number];
+  primaryFamily: number;
+  secondaryFamily: number;
+  transition: number;
   colors: number[][];
 }
 
-export function PerformanceCanvas({ settings, className = "" }: PerformanceCanvasProps) {
+export function PerformanceCanvas({ settings, className = "", paused = false }: PerformanceCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || paused) return;
     const gl = canvas.getContext("webgl2", {
       antialias: false,
       alpha: false,
@@ -48,35 +51,50 @@ export function PerformanceCanvas({ settings, className = "" }: PerformanceCanva
       styleA: location("u_styleA"),
       styleB: location("u_styleB"),
       effects: location("u_effects"),
+      scene: location("u_scene"),
+      modifiers: location("u_modifiers"),
     };
     const startedAt = performance.now();
     let lastFrame = startedAt;
     let animationFrame = 0;
     const smoothed: SmoothedState = {
-      styles: styleWeights(settings.style),
+      primaryFamily: 3,
+      secondaryFamily: 3,
+      transition: 0,
       colors: paletteColors(settings.palette).map((color) => [...color]),
     };
 
     const render = (now: number) => {
+      if (now - lastFrame < 50) {
+        animationFrame = requestAnimationFrame(render);
+        return;
+      }
       const elapsed = (now - startedAt) / 1000;
       const delta = Math.max(0.001, Math.min(0.1, (now - lastFrame) / 1000));
       lastFrame = now;
       const currentSettings = settingsRef.current;
-      const targetStyles = styleWeights(currentSettings.style);
+      const targetFamily = 3;
       const targetColors = paletteColors(currentSettings.palette);
       const intensities = intensityValues(currentSettings.intensity);
+      const drive = 0.12;
 
-      smoothed.styles = smoothed.styles.map((value, index) =>
-        envelope(value, targetStyles[index], delta, 0.45, 1.1),
-      ) as SmoothedState["styles"];
-      const styleTotal = smoothed.styles.reduce((sum, value) => sum + value, 0) || 1;
-      smoothed.styles = smoothed.styles.map((value) => value / styleTotal) as SmoothedState["styles"];
+      if (targetFamily !== smoothed.primaryFamily && targetFamily !== smoothed.secondaryFamily) {
+        smoothed.secondaryFamily = targetFamily;
+        smoothed.transition = 0;
+      }
+      if (smoothed.secondaryFamily !== smoothed.primaryFamily) {
+        smoothed.transition = envelope(smoothed.transition, 1, delta, 0.8, 0.8);
+        if (smoothed.transition > 0.995) {
+          smoothed.primaryFamily = smoothed.secondaryFamily;
+          smoothed.transition = 0;
+        }
+      }
       smoothed.colors = smoothed.colors.map((color, colorIndex) =>
         color.map((value, channel) => envelope(value, targetColors[colorIndex][channel], delta, 0.85, 0.85)),
       );
 
       const isOutput = Boolean(canvas.closest(".performance-output"));
-      const pixelRatio = Math.min(window.devicePixelRatio, isOutput ? 2 : 1.35);
+      const pixelRatio = Math.min(window.devicePixelRatio, isOutput ? 1.25 : 1);
       const width = Math.max(1, Math.round(canvas.clientWidth * pixelRatio));
       const height = Math.max(1, Math.round(canvas.clientHeight * pixelRatio));
       if (canvas.width !== width || canvas.height !== height) {
@@ -95,18 +113,21 @@ export function PerformanceCanvas({ settings, className = "" }: PerformanceCanva
       gl.uniform4f(uniforms.pulse, 0, 0, 0, 0);
       gl.uniform4f(
         uniforms.visual,
-        (0.18 + energy * 0.82) * intensities[0] * currentSettings.motion,
-        (0.15 + highs * 0.85) * intensities[1],
-        0.9 + bass * 0.28,
-        (0.34 + energy * 0.72) * intensities[2] * currentSettings.brightness,
+        (0.12 + drive * 1.38) * intensities[0] * currentSettings.motion,
+        (0.22 + drive * 0.78) * intensities[1],
+        0.92 + drive * 0.34 + bass * 0.12,
+        (0.3 + drive * 0.7) * intensities[2] * currentSettings.brightness,
       );
       gl.uniform3fv(uniforms.colorA, smoothed.colors[0]);
       gl.uniform3fv(uniforms.colorB, smoothed.colors[1]);
       gl.uniform3fv(uniforms.colorC, smoothed.colors[2]);
       gl.uniform3fv(uniforms.colorD, smoothed.colors[3]);
-      gl.uniform4f(uniforms.styleA, ...smoothed.styles.slice(0, 4) as [number, number, number, number]);
-      gl.uniform4f(uniforms.styleB, smoothed.styles[4], 0.78 + energy * 0.34, 0, 0);
-      gl.uniform4f(uniforms.effects, 0.12, 0, currentSettings.colorChange, 0);
+      const secondaryMix = smoothed.secondaryFamily === smoothed.primaryFamily ? 0 : smoothed.transition;
+      gl.uniform4f(uniforms.styleA, smoothed.primaryFamily, smoothed.secondaryFamily, 1 - secondaryMix, secondaryMix);
+      gl.uniform4f(uniforms.styleB, 0.82 + drive * 0.18, drive, 0.37, 0);
+      gl.uniform4f(uniforms.effects, 0.12, 0, currentSettings.colorChange * (0.8 + drive * 1.7), drive);
+      gl.uniform4f(uniforms.scene, intensities[0], intensities[1], intensities[1] * 0.62, intensities[2] * 0.82);
+      gl.uniform4f(uniforms.modifiers, 0, currentSettings.colorChange * 0.28, -1, 0);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
       animationFrame = requestAnimationFrame(render);
     };
@@ -117,7 +138,7 @@ export function PerformanceCanvas({ settings, className = "" }: PerformanceCanva
       gl.deleteVertexArray(vao);
       gl.deleteProgram(program);
     };
-  }, []);
+  }, [paused]);
 
   return <canvas ref={canvasRef} className={`performance-canvas ${className}`} aria-hidden="true" />;
 }

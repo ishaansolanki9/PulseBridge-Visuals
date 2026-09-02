@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::analysis::{MusicState, VisualInputFrame};
+use crate::analysis::VisualInputFrame;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -88,6 +88,7 @@ impl Default for VisualSettings {
 
 impl VisualSettings {
     pub fn sanitized(mut self) -> Self {
+        self.style = VisualStyle::Auto;
         self.pcm_buffer_seconds = self.pcm_buffer_seconds.clamp(5, 30);
         self.music_reactivity = self.music_reactivity.clamp(0.0, 1.5);
         self.motion = self.motion.clamp(0.25, 1.75);
@@ -112,7 +113,7 @@ pub struct SmoothedVisualState {
     pub onset: f32,
     pub impact: f32,
     pub reactivity: f32,
-    pub style_weights: [f32; 5],
+    pub drive: f32,
 }
 
 impl Default for SmoothedVisualState {
@@ -127,13 +128,13 @@ impl Default for SmoothedVisualState {
             onset: 0.0,
             impact: 0.0,
             reactivity: 0.0,
-            style_weights: [1.0, 0.0, 0.0, 0.0, 0.0],
+            drive: 0.0,
         }
     }
 }
 
 impl SmoothedVisualState {
-    pub fn update(&mut self, frame: VisualInputFrame, style: VisualStyle, delta_seconds: f32) {
+    pub fn update(&mut self, frame: VisualInputFrame, delta_seconds: f32) {
         self.energy = envelope(self.energy, frame.energy, delta_seconds, 0.055, 0.42);
         self.sub = envelope(self.sub, frame.sub, delta_seconds, 0.045, 0.5);
         self.bass = envelope(self.bass, frame.bass, delta_seconds, 0.035, 0.3);
@@ -149,15 +150,14 @@ impl SmoothedVisualState {
         self.onset = envelope(self.onset, frame.onset, delta_seconds, 0.015, 0.18);
         self.impact = envelope(self.impact, frame.impact, delta_seconds, 0.012, 0.34);
         self.reactivity = envelope(self.reactivity, frame.reactivity, delta_seconds, 0.6, 1.4);
-
-        let target_weights = style_weights(style, frame.state);
-        for (current, target) in self.style_weights.iter_mut().zip(target_weights) {
-            *current = envelope(*current, target, delta_seconds, 0.45, 1.1);
-        }
-        let total = self.style_weights.iter().sum::<f32>().max(0.001);
-        self.style_weights
-            .iter_mut()
-            .for_each(|value| *value /= total);
+        let tonal_energy =
+            frame.energy * 0.48 + frame.bass * 0.22 + frame.mids * 0.12 + frame.highs * 0.18;
+        let continuous = ((tonal_energy - 0.1) / 0.78).clamp(0.0, 1.0);
+        let target_drive =
+            (continuous * 0.78 + frame.beat_pulse * 0.12 + frame.onset * 0.1 + frame.impact * 0.2)
+                .clamp(0.0, 1.0)
+                * frame.reactivity.clamp(0.0, 1.0);
+        self.drive = envelope(self.drive, target_drive, delta_seconds, 0.055, 0.34);
     }
 }
 
@@ -167,30 +167,19 @@ fn envelope(current: f32, target: f32, delta_seconds: f32, attack: f32, release:
     current + (target - current) * amount
 }
 
-fn style_weights(style: VisualStyle, state: MusicState) -> [f32; 5] {
-    match style {
-        VisualStyle::Fluid => [1.0, 0.0, 0.0, 0.0, 0.0],
-        VisualStyle::Waves => [0.0, 1.0, 0.0, 0.0, 0.0],
-        VisualStyle::Pulse => [0.0, 0.0, 1.0, 0.0, 0.0],
-        VisualStyle::Tunnel => [0.0, 0.0, 0.0, 1.0, 0.0],
-        VisualStyle::Burst => [0.0, 0.0, 0.0, 0.0, 1.0],
-        VisualStyle::Auto => match state {
-            MusicState::Quiet => [0.94, 0.03, 0.02, 0.01, 0.0],
-            MusicState::Flow => [0.88, 0.08, 0.02, 0.02, 0.0],
-            MusicState::Groove => [0.16, 0.68, 0.08, 0.06, 0.02],
-            MusicState::Build => [0.42, 0.18, 0.06, 0.3, 0.04],
-            MusicState::Impact => [0.04, 0.12, 0.14, 0.1, 0.6],
-            MusicState::Peak => [0.1, 0.43, 0.14, 0.11, 0.22],
-            MusicState::Breakdown => [0.82, 0.06, 0.07, 0.04, 0.01],
-        },
-    }
-}
-
 pub fn intensity_values(profile: IntensityProfile) -> [f32; 4] {
     match profile {
         IntensityProfile::Chill => [0.66, 0.62, 0.72, 0.45],
         IntensityProfile::Balanced => [0.9, 0.92, 1.0, 0.78],
-        IntensityProfile::Wild => [1.12, 1.25, 1.2, 1.0],
+        IntensityProfile::Wild => [1.35, 1.4, 1.25, 1.0],
+    }
+}
+
+pub fn intensity_ceiling(intensity: IntensityProfile) -> f32 {
+    match intensity {
+        IntensityProfile::Chill => 0.48,
+        IntensityProfile::Balanced => 0.74,
+        IntensityProfile::Wild => 1.0,
     }
 }
 
@@ -254,22 +243,17 @@ mod tests {
     }
 
     #[test]
-    fn auto_style_blends_tunnel_into_a_build() {
-        let weights = style_weights(VisualStyle::Auto, MusicState::Build);
-        assert!(weights[3] > weights[1]);
-        assert!(weights.iter().sum::<f32>() > 0.99);
-    }
-
-    #[test]
     fn settings_are_sanitized_before_runtime_use() {
         let settings = VisualSettings {
             pcm_buffer_seconds: 60,
             brightness: 4.0,
+            style: VisualStyle::Burst,
             ..Default::default()
         }
         .sanitized();
         assert_eq!(settings.pcm_buffer_seconds, 30);
         assert_eq!(settings.brightness, 1.25);
+        assert_eq!(settings.style, VisualStyle::Auto);
     }
 
     #[test]
@@ -285,5 +269,43 @@ mod tests {
         flash.update(2.1, 0.0, FlashProfile::High, 1.0, 1.0, 0.1);
         let blocked = flash.update(2.2, 1.0, FlashProfile::High, 1.0, 1.0, 0.1);
         assert!(blocked < first * 0.25);
+    }
+
+    #[test]
+    fn intensity_profiles_set_the_dial_ceiling_without_forcing_the_dial() {
+        assert_eq!(intensity_ceiling(IntensityProfile::Wild), 1.0);
+        assert!(intensity_ceiling(IntensityProfile::Balanced) < 0.8);
+        assert!(intensity_ceiling(IntensityProfile::Chill) < 0.5);
+    }
+
+    #[test]
+    fn drive_rises_and_falls_proportionally_with_audio() {
+        let mut state = SmoothedVisualState::default();
+        let quiet = VisualInputFrame {
+            energy: 0.12,
+            bass: 0.1,
+            mids: 0.1,
+            highs: 0.08,
+            reactivity: 1.0,
+            ..Default::default()
+        };
+        state.update(quiet, 0.2);
+        let quiet_drive = state.drive;
+        state.update(
+            VisualInputFrame {
+                energy: 0.95,
+                bass: 0.9,
+                mids: 0.8,
+                highs: 0.85,
+                beat_pulse: 0.9,
+                onset: 0.8,
+                impact: 0.9,
+                reactivity: 1.0,
+                ..Default::default()
+            },
+            0.2,
+        );
+        assert!(state.drive > quiet_drive + 0.6);
+        assert!(state.drive <= 1.0);
     }
 }

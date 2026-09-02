@@ -15,6 +15,7 @@ use std::{
 };
 
 use crate::audio::PcmRingBuffer;
+use crate::phrase::{AudioInferredPhraseProvider, PhraseProvider, SharedPhrase};
 use fft::{AudioAnalyzer, ANALYSIS_HOP, FFT_SIZE};
 use musical_state::MusicalStateTracker;
 
@@ -26,15 +27,36 @@ pub fn spawn_analysis(
     ring: Arc<PcmRingBuffer>,
     stop: Arc<AtomicBool>,
     shared: SharedAnalysis,
+    phrase: SharedPhrase,
 ) -> Result<JoinHandle<()>, String> {
     thread::Builder::new()
         .name("pulsebridge-music-analysis".to_string())
-        .spawn(move || run_analysis(ring, stop, shared))
+        .spawn(move || {
+            let worker_stop = Arc::clone(&stop);
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                run_analysis(ring, Arc::clone(&stop), shared, phrase)
+            }));
+            if outcome.is_err() {
+                crate::diagnostics::event(
+                    "error",
+                    "worker.analysis.panic",
+                    "The analysis worker panicked",
+                );
+                worker_stop.store(true, Ordering::Release);
+            }
+            crate::diagnostics::event("info", "worker.analysis.exit", "Analysis worker exited");
+        })
         .map_err(|error| error.to_string())
 }
 
-fn run_analysis(ring: Arc<PcmRingBuffer>, stop: Arc<AtomicBool>, shared: SharedAnalysis) {
+fn run_analysis(
+    ring: Arc<PcmRingBuffer>,
+    stop: Arc<AtomicBool>,
+    shared: SharedAnalysis,
+    phrase: SharedPhrase,
+) {
     let started_at = Instant::now();
+    let mut phrase_provider = AudioInferredPhraseProvider::new(started_at);
     let mut analyzer = AudioAnalyzer::new();
     let mut state_tracker = MusicalStateTracker::new();
     let mut window = VecDeque::with_capacity(FFT_SIZE);
@@ -89,6 +111,10 @@ fn run_analysis(ring: Arc<PcmRingBuffer>, stop: Arc<AtomicBool>, shared: SharedA
                 impact,
                 reactivity: 1.0,
             };
+            *phrase
+                .write()
+                .unwrap_or_else(|poisoned| poisoned.into_inner()) =
+                phrase_provider.update(Instant::now(), frame);
             let mut snapshot = shared
                 .write()
                 .unwrap_or_else(|poisoned| poisoned.into_inner());

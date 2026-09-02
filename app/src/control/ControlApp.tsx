@@ -4,6 +4,8 @@ import { PerformanceCanvas } from "../visuals/PerformanceCanvas";
 import { defaultSettings } from "../visuals/types";
 import type {
   AudioSourceInfo,
+  DiagnosticMode,
+  DiagnosticReport,
   DisplayInfo,
   FlashProfile,
   IntensityProfile,
@@ -11,18 +13,8 @@ import type {
   PaletteName,
   RuntimeSnapshot,
   VisualSettings,
-  VisualStyle,
 } from "../visuals/types";
 import { controlTransport, isNativeApp } from "./transport";
-
-const styles: Array<{ id: VisualStyle; label: string; detail: string }> = [
-  { id: "auto", label: "Auto", detail: "Directs the set" },
-  { id: "fluid", label: "Fluid", detail: "Liquid color" },
-  { id: "waves", label: "Waves", detail: "Layered motion" },
-  { id: "pulse", label: "Pulse", detail: "Beat geometry" },
-  { id: "tunnel", label: "Tunnel", detail: "Build energy" },
-  { id: "burst", label: "Burst", detail: "Drop impact" },
-];
 
 const intensities: Array<{ id: IntensityProfile; label: string }> = [
   { id: "chill", label: "Chill" },
@@ -55,6 +47,9 @@ export function ControlApp() {
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [sources, setSources] = useState<AudioSourceInfo[]>([]);
   const [busy, setBusy] = useState(false);
+  const [diagnosticBusy, setDiagnosticBusy] = useState(false);
+  const [diagnosticMode, setDiagnosticMode] = useState<DiagnosticMode>("fullStartup");
+  const [diagnosticReport, setDiagnosticReport] = useState<DiagnosticReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -63,13 +58,15 @@ export function ControlApp() {
       controlTransport.getDisplays(),
       controlTransport.getAudioSources(),
       controlTransport.getState(),
+      controlTransport.getPreviousRunReport(),
     ])
-      .then(([nextDisplays, nextSources, nextRuntime]) => {
+      .then(([nextDisplays, nextSources, nextRuntime, previousReport]) => {
         if (!active) return;
         setDisplays(nextDisplays);
         setSources(nextSources);
         setRuntime(nextRuntime);
         setSettings(nextRuntime.settings);
+        if (previousReport) setDiagnosticReport(previousReport);
       })
       .catch((reason: unknown) => active && setError(messageFrom(reason)));
     return () => {
@@ -97,8 +94,10 @@ export function ControlApp() {
     [displays, settings.displayId],
   );
   const selectedSource = sources.find((source) => source.id === settings.audioSourceId);
+  const rekordboxSource = sources.find((source) => source.kind === "rekordboxProcess");
   const canStart = Boolean(isNativeApp && activeDisplay && selectedSource?.available);
   const status = runtimeStatus(runtime);
+  const fullRangeDial = settings.intensity === "wild";
 
   const changeSettings = (change: Partial<VisualSettings>) => {
     const next = { ...settings, ...change };
@@ -136,6 +135,41 @@ export function ControlApp() {
     void controlTransport.getAudioSources().then(setSources).catch((reason: unknown) => setError(messageFrom(reason)));
   };
 
+  const openLogs = () => {
+    void controlTransport.openLogsFolder().catch((reason: unknown) => setError(messageFrom(reason)));
+  };
+
+  const copyDiagnostic = () => {
+    const diagnostic = [error ?? runtime?.lastError, runtime?.logPath ? `Logs: ${runtime.logPath}` : null]
+      .filter(Boolean)
+      .join("\n");
+    void navigator.clipboard.writeText(diagnostic).catch(() => undefined);
+  };
+
+  const runDiagnostic = async () => {
+    setDiagnosticBusy(true);
+    setError(null);
+    try {
+      setDiagnosticReport(await controlTransport.runDiagnostic(diagnosticMode));
+    } catch (reason) {
+      setError(messageFrom(reason));
+    } finally {
+      setDiagnosticBusy(false);
+    }
+  };
+
+  const cancelDiagnostic = () => {
+    void controlTransport.cancelDiagnostic();
+  };
+
+  const copyReadableReport = () => {
+    if (diagnosticReport) void navigator.clipboard.writeText(readableReport(diagnosticReport));
+  };
+
+  const copyJsonReport = () => {
+    if (diagnosticReport) void navigator.clipboard.writeText(JSON.stringify(diagnosticReport, null, 2));
+  };
+
   return (
     <main className="control-shell">
       <header className="control-header">
@@ -149,14 +183,14 @@ export function ControlApp() {
       </header>
 
       <section className="preview-card" aria-label="Ambient visual preview">
-        <PerformanceCanvas settings={settings} className="control-preview" />
+        <PerformanceCanvas settings={settings} className="control-preview" paused={Boolean(runtime?.running)} />
         <div className="preview-topline">
           <span>Ambient preview</span>
           <span>No audio injected</span>
         </div>
         <div className="preview-caption">
-          <span>Live response activates in the Windows app</span>
-          <strong>{settings.style === "auto" ? "Auto directing" : styles.find((style) => style.id === settings.style)?.label}</strong>
+          <span>{runtime?.running ? "Preview paused to preserve performance" : "Live response activates in the output"}</span>
+          <strong>Auto · 26 illusions</strong>
         </div>
       </section>
 
@@ -184,7 +218,7 @@ export function ControlApp() {
                 onChange={(event) => changeSettings({ audioSourceId: event.target.value })}
                 disabled={runtime?.running || sources.length === 0}
               >
-                {sources.length === 0 && <option value="process:auto">Windows package required</option>}
+                {sources.length === 0 && <option value="process:auto">Desktop package required</option>}
                 {sources.map((source) => (
                   <option key={source.id} value={source.id} disabled={!source.available}>
                     {source.name}{source.isDefault ? " · default" : ""}
@@ -201,25 +235,47 @@ export function ControlApp() {
           <span>{sourceMessage(selectedSource, isNativeApp)}</span>
         </div>
 
-        <div className="control-divider" />
+        <div className="diagnostic-grid" aria-label="Live connection diagnostics">
+          <DiagnosticItem label="Rekordbox process" value={runtime?.audio.rekordboxDetected || rekordboxSource?.detected ? "Detected" : "Not detected"} tone={runtime?.audio.rekordboxDetected || rekordboxSource?.detected ? "good" : "waiting"} />
+          <DiagnosticItem label="Capture client" value={runtime?.audio.captureInitialized ? "Initialized" : runtime?.audio.state === "connecting" ? "Initializing" : "Not initialized"} tone={runtime?.audio.captureInitialized ? "good" : "waiting"} />
+          <DiagnosticItem label="Audio route" value={audioRouteLabel(runtime)} tone={runtime?.audio.route !== "none" ? "good" : "waiting"} />
+          <DiagnosticItem label="Sample flow" value={sampleFlowLabel(runtime)} tone={runtime?.audio.sampleFlow === "flowing" ? "good" : runtime?.audio.sampleFlow === "silent" ? "warning" : "waiting"} />
+          <DiagnosticItem label="Reactive ready" value={runtime?.audio.reactiveReady ? "Ready" : "Waiting"} tone={runtime?.audio.reactiveReady ? "good" : "waiting"} />
+          <DiagnosticItem label="Phrase source" value={phraseSourceLabel(runtime)} tone={runtime?.phrase.provenance === "rekordbox" ? "good" : runtime?.phrase.provenance === "audioInferred" ? "info" : "waiting"} />
+          <DiagnosticItem label="Renderer" value={rendererLabel(runtime)} tone={runtime?.renderer.state === "running" ? "good" : runtime?.renderer.state === "failed" ? "warning" : "waiting"} />
+        </div>
 
-        <fieldset className="choice-group style-group">
-          <legend>Visual style</legend>
-          <div className="style-options">
-            {styles.map((style) => (
-              <button
-                type="button"
-                key={style.id}
-                className={settings.style === style.id ? "is-selected" : ""}
-                onClick={() => changeSettings({ style: style.id })}
-              >
-                <StyleGlyph style={style.id} />
-                <span>{style.label}</span>
-                <small>{style.detail}</small>
-              </button>
-            ))}
+        <div className="connection-test" aria-label="Connection test">
+          <div>
+            <strong>Test connection</strong>
+            <small>Runs bounded probes without entering fullscreen.</small>
           </div>
-        </fieldset>
+          <select value={diagnosticMode} onChange={(event) => setDiagnosticMode(event.target.value as DiagnosticMode)} disabled={diagnosticBusy || runtime?.running}>
+            <option value="fullStartup">Full startup</option>
+            <option value="audioOnly">Audio only</option>
+            <option value="rendererOnly">Renderer only</option>
+            <option value="safeRenderer">Safe renderer</option>
+          </select>
+          {diagnosticBusy ? (
+            <button type="button" onClick={cancelDiagnostic}>Cancel test</button>
+          ) : (
+            <button type="button" onClick={() => void runDiagnostic()} disabled={!isNativeApp || runtime?.running}>Test connection</button>
+          )}
+        </div>
+
+        {diagnosticReport && (
+          <div className="diagnostic-report" data-verdict={diagnosticReport.verdict}>
+            <div><strong>{diagnosticReport.verdict.toUpperCase()}</strong><span>{diagnosticReport.summary}</span></div>
+            <code>{diagnosticReport.failureCode ?? diagnosticReport.reportId}</code>
+            <div className="report-actions">
+              <button type="button" onClick={copyReadableReport}>Copy readable result</button>
+              <button type="button" onClick={copyJsonReport}>Copy JSON</button>
+              <button type="button" onClick={openLogs}>Open logs folder</button>
+            </div>
+          </div>
+        )}
+
+        <div className="control-divider" />
 
         <div className="control-grid three-up">
           <fieldset className="choice-group">
@@ -257,7 +313,14 @@ export function ControlApp() {
             </button>
             <span><strong>Keep output on top</strong><small>For a dedicated display or projector</small></span>
           </label>
-          <div className="safety-note"><strong>Flash safety</strong><small>Off is the default. Motion impacts stay active without white flashes.</small></div>
+          <div className="safety-note">
+            <strong>{fullRangeDial ? "Full-range audio dial" : "Flash safety"}</strong>
+            <small>
+              {fullRangeDial
+                ? "Wild lets live audio climb from subtle movement to the full illusion ceiling."
+                : "Off is the default. Motion impacts stay active without white flashes."}
+            </small>
+          </div>
         </div>
 
         <details className="advanced-controls">
@@ -289,7 +352,17 @@ export function ControlApp() {
         </section>
       )}
 
-      {(error || runtime?.lastError) && <p className="control-error" role="alert">{error ?? runtime?.lastError}</p>}
+      {(error || runtime?.lastError) && (
+        <div className="control-error" role="alert">
+          <strong>Visual output did not start</strong>
+          <span>{error ?? runtime?.lastError}</span>
+          {runtime?.logPath && <code>{runtime.logPath}</code>}
+          <div>
+            <button type="button" onClick={copyDiagnostic}>Copy diagnostic</button>
+            {runtime?.logPath && <button type="button" onClick={openLogs}>Open logs folder</button>}
+          </div>
+        </div>
+      )}
 
       <footer className="launch-row">
         <div>
@@ -300,14 +373,18 @@ export function ControlApp() {
           className={`launch-button ${runtime?.running ? "is-stop" : ""}`}
           type="button"
           onClick={() => void toggleOutput()}
-          disabled={busy || (!runtime?.running && !canStart)}
+          disabled={busy || diagnosticBusy || (!runtime?.running && !canStart)}
         >
           <i>{runtime?.running ? <StopIcon /> : <PlayIcon />}</i>
-          <span>{busy ? "Working…" : runtime?.running ? "Stop visuals" : "Start live visuals"}</span>
+          <span>{busy ? "Starting and checking GPU…" : runtime?.running ? "Stop visuals" : runtime?.lifecycle === "failed" ? "Retry live visuals" : "Start live visuals"}</span>
         </button>
       </footer>
     </main>
   );
+}
+
+function DiagnosticItem({ label, value, tone }: { label: string; value: string; tone: "good" | "waiting" | "warning" | "info" }) {
+  return <div className="diagnostic-item" data-tone={tone}><span>{label}</span><strong><i />{value}</strong></div>;
 }
 
 function RangeSetting({ label, value, min, max, onChange, disabled = false }: { label: string; value: number; min: number; max: number; onChange: (value: number) => void; disabled?: boolean }) {
@@ -321,6 +398,8 @@ function RangeSetting({ label, value, min, max, onChange, disabled = false }: { 
 
 function runtimeStatus(runtime: RuntimeSnapshot | null) {
   if (!runtime) return { label: "Checking", tone: "idle" };
+  if (runtime.lifecycle === "starting") return { label: "Starting", tone: "warning" };
+  if (runtime.lifecycle === "failed") return { label: "Start failed", tone: "warning" };
   if (!runtime.running) return { label: "Ready", tone: "idle" };
   if (runtime.outputMode === "black") return { label: "Black screen", tone: "warning" };
   if (runtime.audio.state === "recovering" || runtime.audio.state === "connecting") return { label: "Reconnecting", tone: "warning" };
@@ -328,19 +407,78 @@ function runtimeStatus(runtime: RuntimeSnapshot | null) {
   return { label: "Ambient", tone: "ambient" };
 }
 
+function audioRouteLabel(runtime: RuntimeSnapshot | null) {
+  if (!runtime) return "Checking";
+  if (runtime.audio.route === "rekordboxProcess") return "Rekordbox process";
+  if (runtime.audio.route === "selectedOutput") return runtime.audio.sourceName ?? "Selected output";
+  if (runtime.audio.route === "defaultOutputFallback") return "Default-output fallback";
+  if (runtime.audio.route === "systemOutputFallback") return "System-output fallback";
+  if (runtime.audio.route === "selectedInput") return runtime.audio.sourceName ?? "Selected input";
+  return "Not active";
+}
+
+function sampleFlowLabel(runtime: RuntimeSnapshot | null) {
+  if (!runtime) return "Checking";
+  if (runtime.audio.sampleFlow === "flowing") return "Samples flowing";
+  if (runtime.audio.sampleFlow === "silent") return "Packets, silent";
+  if (runtime.audio.sampleFlow === "waiting") return "Waiting for samples";
+  return runtime.audio.state === "unsupported" ? "OS version unsupported" : "Not active";
+}
+
+function phraseSourceLabel(runtime: RuntimeSnapshot | null) {
+  if (!runtime) return "Checking";
+  if (runtime.phrase.provenance === "rekordbox") return `Rekordbox${runtime.phrase.phrase ? ` · ${runtime.phrase.phrase}` : ""}`;
+  if (runtime.phrase.provenance === "cueMarkers") return "Cue-derived";
+  if (runtime.phrase.provenance === "audioInferred") return `Audio inferred${runtime.phrase.phrase ? ` · ${runtime.phrase.phrase}` : ""}`;
+  return "Unavailable";
+}
+
+function rendererLabel(runtime: RuntimeSnapshot | null) {
+  if (!runtime) return "Checking";
+  if (runtime.renderer.state === "running") return `${runtime.renderer.backend ?? "GPU"}${runtime.renderer.softwareFallback ? " · software" : ""}`;
+  if (runtime.renderer.state === "initializing") return "Initializing";
+  if (runtime.renderer.state === "failed") return "Failed";
+  return "Stopped";
+}
+
 function sourceMessage(source: AudioSourceInfo | undefined, native: boolean) {
-  if (!native) return "Transfer and install the Windows package to connect Rekordbox.";
+  if (!native) return "Install the Windows or macOS desktop package to connect Rekordbox.";
   if (!source) return "Choose an available audio source.";
-  if (source.kind === "rekordboxProcess" && !source.detected) return "Open Rekordbox, then refresh. Windows-output fallback remains available below.";
-  if (source.kind === "rekordboxProcess") return "Rekordbox detected · captures only its process when Windows supports it.";
-  return `Output loopback ready${source.isDefault ? " · current Windows default" : ""}.`;
+  if (source.kind === "inputDevice") {
+    return `Input capture ready${source.isDefault ? " · current microphone/line-in default" : ""}. macOS asks for microphone permission when it starts.`;
+  }
+  if (source.kind === "rekordboxProcess" && source.name.includes("Safe Windows-output capture")) {
+    return source.detected
+      ? "Rekordbox detected; using the crash-safe Windows output route. Sample flow is verified separately below."
+      : "Rekordbox is not detected; the safe Windows output route can still capture the current system output.";
+  }
+  if (source.kind === "rekordboxProcess" && !source.detected) return "Rekordbox is not detected. Start stays ambient and waits/retries; supported Windows routes may use an explicit output fallback.";
+  if (source.kind === "rekordboxProcess") return "Process detected; samples and phrase provenance are verified separately below.";
+  if (source.id === "output:default") return "System-audio capture ready · listens to everything playing through macOS speakers/output.";
+  return `Output loopback ready${source.isDefault ? " · current system default" : ""}.`;
 }
 
 function launchHint(runtime: RuntimeSnapshot | null, source: AudioSourceInfo | undefined, native: boolean) {
   if (runtime?.running) return runtime.audio.message ?? `${runtime.audio.state} · full screen`;
-  if (!native) return "Ambient preview only here · live capture is packaged for Windows";
-  if (!source?.available) return "Open Rekordbox or select an available Windows output";
-  return `${source.name} · ready for real audio`;
+  if (runtime?.lifecycle === "failed") return "The controller stayed open · retry or inspect the diagnostic log";
+  if (!native) return "Ambient preview only here · live capture is in the desktop package";
+  if (!source?.available) return "Select an available Rekordbox, system-audio, or input route";
+  return `${source.name} · startup waits for the first valid GPU frame`;
+}
+
+function readableReport(report: DiagnosticReport) {
+  const lines = [
+    `PulseBridge connection diagnostic: ${report.verdict.toUpperCase()}`,
+    report.summary,
+    `Report ID: ${report.reportId}`,
+    `Mode: ${report.mode}`,
+    `Duration: ${report.durationMs} ms`,
+  ];
+  if (report.failureStage && report.failureCode) lines.push(`Failure: ${report.failureStage} (${report.failureCode})`);
+  lines.push(`Audio: detected=${report.audio.processDetected}, initialized=${report.audio.captureInitialized}, packets=${report.audio.packetsReceived}, signal=${report.audio.nonSilentSamplesReceived}, reactive=${report.audio.reactiveReady}`);
+  if (report.renderer.adapter) lines.push(`Renderer: ${report.renderer.adapter} (${report.renderer.backend ?? "unknown backend"})`);
+  lines.push(`Log: ${report.logPath}`);
+  return lines.join("\n");
 }
 
 function messageFrom(reason: unknown) {
@@ -354,15 +492,6 @@ function BrandMark() {
       <circle cx="5" cy="26" r="2" /><circle cx="39" cy="17" r="2" />
     </svg>
   );
-}
-
-function StyleGlyph({ style }: { style: VisualStyle }) {
-  if (style === "fluid") return <svg viewBox="0 0 34 20" aria-hidden="true"><path d="M2 15C8 3 15 21 21 8c3-6 7-5 11-2" /></svg>;
-  if (style === "waves") return <svg viewBox="0 0 34 20" aria-hidden="true"><path d="M1 7c5-7 8 7 13 0s8 7 13 0 5 0 6 2M1 14c5-7 8 7 13 0s8 7 13 0 5 0 6 2" /></svg>;
-  if (style === "pulse") return <svg viewBox="0 0 34 20" aria-hidden="true"><circle cx="17" cy="10" r="3" /><circle cx="17" cy="10" r="8" /></svg>;
-  if (style === "tunnel") return <svg viewBox="0 0 34 20" aria-hidden="true"><path d="M3 2h28l-9 16H12Zm9 0 5 8 5-8m-10 16 5-8 5 8" /></svg>;
-  if (style === "burst") return <svg viewBox="0 0 34 20" aria-hidden="true"><path d="m17 1 2 6 6-4-3 6 8 1-8 1 3 6-6-4-2 6-2-6-6 4 3-6-8-1 8-1-3-6 6 4Z" /></svg>;
-  return <svg viewBox="0 0 34 20" aria-hidden="true"><path d="M2 15c5-12 8 3 13-7 4-8 7 8 11 0 2-4 4-3 6-2" /><circle cx="8" cy="7" r="2" /></svg>;
 }
 
 function PlayIcon() {

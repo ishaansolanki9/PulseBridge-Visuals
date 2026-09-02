@@ -1,6 +1,8 @@
 import { defaultSettings, stoppedCapture } from "../visuals/types";
 import type {
   AudioSourceInfo,
+  DiagnosticMode,
+  DiagnosticReport,
   DisplayInfo,
   OutputMode,
   RuntimeSnapshot,
@@ -15,6 +17,11 @@ interface ControlTransport {
   start(settings: VisualSettings): Promise<void>;
   stop(): Promise<void>;
   setOutputMode(mode: OutputMode): Promise<void>;
+  openLogsFolder(): Promise<void>;
+  runDiagnostic(mode: DiagnosticMode): Promise<DiagnosticReport>;
+  cancelDiagnostic(): Promise<boolean>;
+  getLatestDiagnostic(): Promise<DiagnosticReport | null>;
+  getPreviousRunReport(): Promise<DiagnosticReport | null>;
 }
 
 export const visualSettingsStorageKey = "pulsebridge-visual-settings";
@@ -49,10 +56,27 @@ class BrowserControlTransport implements ControlTransport {
 
   async getState(): Promise<RuntimeSnapshot> {
     return {
+      lifecycle: "stopped",
       running: false,
       lastError: null,
+      logPath: null,
       settings: this.settings,
       audio: stoppedCapture,
+      phrase: {
+        provenance: "unavailable",
+        phrase: null,
+        confidence: null,
+        progress: null,
+        stale: false,
+        message: "Phrase direction is available in the desktop package",
+      },
+      renderer: {
+        state: "stopped",
+        adapter: null,
+        backend: null,
+        softwareFallback: false,
+        message: null,
+      },
       outputMode: "ambient",
       reactive: false,
       audioAgeMs: null,
@@ -66,12 +90,24 @@ class BrowserControlTransport implements ControlTransport {
 
   async start(settings: VisualSettings) {
     await this.updateSettings(settings);
-    throw new Error("Live Rekordbox capture starts from the Windows package");
+    throw new Error("Live Rekordbox capture starts from the desktop package");
   }
 
   async stop() {}
 
   async setOutputMode() {}
+
+  async openLogsFolder() {}
+
+  async runDiagnostic(): Promise<DiagnosticReport> {
+    throw new Error("Connection diagnostics run in the desktop package");
+  }
+
+  async cancelDiagnostic() { return false; }
+
+  async getLatestDiagnostic() { return null; }
+
+  async getPreviousRunReport() { return null; }
 }
 
 class TauriControlTransport implements ControlTransport {
@@ -108,6 +144,31 @@ class TauriControlTransport implements ControlTransport {
   async setOutputMode(mode: OutputMode) {
     const { invoke } = await import("@tauri-apps/api/core");
     await invoke("set_output_mode", { mode });
+  }
+
+  async openLogsFolder() {
+    const { invoke } = await import("@tauri-apps/api/core");
+    await invoke("open_logs_folder");
+  }
+
+  async runDiagnostic(mode: DiagnosticMode) {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<DiagnosticReport>("run_connection_diagnostic", { mode });
+  }
+
+  async cancelDiagnostic() {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<boolean>("cancel_connection_diagnostic");
+  }
+
+  async getLatestDiagnostic() {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<DiagnosticReport | null>("get_latest_diagnostic_report");
+  }
+
+  async getPreviousRunReport() {
+    const { invoke } = await import("@tauri-apps/api/core");
+    return invoke<DiagnosticReport | null>("get_previous_run_report");
   }
 }
 

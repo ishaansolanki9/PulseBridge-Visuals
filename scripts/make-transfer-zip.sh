@@ -11,6 +11,7 @@ trap 'rm -rf "$temporary_directory"' EXIT INT TERM
 mkdir -p "$ready_directory"
 cd "$project_directory"
 zip -qr "$temporary_zip" . \
+  -x '.git/*' \
   -x 'node_modules/*' \
   -x '*/node_modules/*' \
   -x 'app/dist/*' \
@@ -20,6 +21,7 @@ zip -qr "$temporary_zip" . \
   -x 'src-tauri/target/*' \
   -x 'transfer-ready/*' \
   -x '.DS_Store' \
+  -x '*.zip' \
   -x '*.log'
 mv -f "$temporary_zip" "$ready_directory/PulseBridge-Windows-Source.zip"
 
