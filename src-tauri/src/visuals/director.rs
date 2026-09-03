@@ -15,40 +15,61 @@ const PHRASE_STALE_AFTER: Duration = Duration::from_secs(5);
 #[repr(u32)]
 pub enum VisualFamily {
     #[default]
-    ColorSplotchWave = 0,
-    MultiLayerWaveField = 1,
-    FractalBloom = 2,
-    RecursiveTunnel = 3,
-    RibbonFlow = 4,
-    BranchingTree = 5,
-    ContourField = 6,
-    LatticeFlow = 7,
-    HelixSpiral = 8,
-    RingPulseSystem = 9,
-    ArcFan = 10,
-    FractalWaveHybrid = 11,
+    WarpSpiral = 0,
+    MoireRings = 1,
+    InfiniteChecker = 2,
+    NeonLattice = 3,
+    TwistedStripes = 4,
+    RotatingSnakes = 5,
+    HyperbolicTunnel = 6,
+    ChromaticMaze = 7,
+    VortexChevron = 8,
+    GlassOrbit = 9,
+    SineInterference = 10,
+    ImpossibleCubes = 11,
+    PolarFan = 12,
+    GravityLens = 13,
+    RibbonWormhole = 14,
+    QuantumWeave = 15,
+    FractalCompass = 16,
+    LiquidCircuit = 17,
+    AlienHeads = 18,
+    PrismVortex = 19,
+    DiamondDrift = 20,
+    OrbitalMesh = 21,
+    HelixPortal = 22,
+    RadialEscalator = 23,
+    ElectricTopography = 24,
+    EventHorizon = 25,
 }
 
-const ALL_PRESETS: [VisualFamily; 12] = [
-    VisualFamily::ColorSplotchWave,
-    VisualFamily::MultiLayerWaveField,
-    VisualFamily::FractalBloom,
-    VisualFamily::RecursiveTunnel,
-    VisualFamily::RibbonFlow,
-    VisualFamily::BranchingTree,
-    VisualFamily::ContourField,
-    VisualFamily::LatticeFlow,
-    VisualFamily::HelixSpiral,
-    VisualFamily::RingPulseSystem,
-    VisualFamily::ArcFan,
-    VisualFamily::FractalWaveHybrid,
-];
-
-const CORE_PRESETS: [VisualFamily; 4] = [
-    VisualFamily::ColorSplotchWave,
-    VisualFamily::MultiLayerWaveField,
-    VisualFamily::FractalBloom,
-    VisualFamily::RecursiveTunnel,
+const ALL_ILLUSIONS: [VisualFamily; 26] = [
+    VisualFamily::WarpSpiral,
+    VisualFamily::MoireRings,
+    VisualFamily::InfiniteChecker,
+    VisualFamily::NeonLattice,
+    VisualFamily::TwistedStripes,
+    VisualFamily::RotatingSnakes,
+    VisualFamily::HyperbolicTunnel,
+    VisualFamily::ChromaticMaze,
+    VisualFamily::VortexChevron,
+    VisualFamily::GlassOrbit,
+    VisualFamily::SineInterference,
+    VisualFamily::ImpossibleCubes,
+    VisualFamily::PolarFan,
+    VisualFamily::GravityLens,
+    VisualFamily::RibbonWormhole,
+    VisualFamily::QuantumWeave,
+    VisualFamily::FractalCompass,
+    VisualFamily::LiquidCircuit,
+    VisualFamily::AlienHeads,
+    VisualFamily::PrismVortex,
+    VisualFamily::DiamondDrift,
+    VisualFamily::OrbitalMesh,
+    VisualFamily::HelixPortal,
+    VisualFamily::RadialEscalator,
+    VisualFamily::ElectricTopography,
+    VisualFamily::EventHorizon,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -56,7 +77,11 @@ const CORE_PRESETS: [VisualFamily; 4] = [
 pub enum ModifierKind {
     PaletteDrift = 0,
     BeatZoom = 1,
+    BassWarp = 2,
+    HighSparkle = 3,
     EchoTrails = 4,
+    MirrorFold = 5,
+    ChromaticSplit = 6,
     ImpactBloom = 7,
 }
 
@@ -113,7 +138,7 @@ pub struct ScenePlan {
 impl Default for ScenePlan {
     fn default() -> Self {
         Self {
-            primary: VisualFamily::ColorSplotchWave,
+            primary: VisualFamily::WarpSpiral,
             secondary: None,
             primary_mix: 1.0,
             secondary_mix: 0.0,
@@ -232,7 +257,7 @@ impl SceneDirector {
     pub fn new(session_seed: u64) -> Self {
         Self {
             session_seed: session_seed.max(1),
-            current_primary: VisualFamily::ColorSplotchWave,
+            current_primary: VisualFamily::WarpSpiral,
             last_switch_seconds: -MIN_DWELL_SECONDS,
             active_transition: None,
             last_phrase_key: None,
@@ -415,11 +440,8 @@ impl SceneDirector {
         plan.normalized()
     }
 
-    fn choose_primary(&self, _phrase: PhraseKind, key: u64) -> VisualFamily {
-        if let Some(core) = core_for_auto_shuffle(self.auto_shuffle_counter) {
-            return core;
-        }
-        let candidates = &ALL_PRESETS;
+    fn choose_primary(&self, phrase: PhraseKind, key: u64) -> VisualFamily {
+        let candidates = candidates_for_phrase(phrase);
         let start = mix_seed(self.session_seed, key) as usize % candidates.len();
         for offset in 0..candidates.len() {
             let candidate = candidates[(start + offset) % candidates.len()];
@@ -566,11 +588,8 @@ impl SceneDirector {
     }
 }
 
-fn core_for_auto_shuffle(shuffle: u64) -> Option<VisualFamily> {
-    if shuffle == 0 || shuffle.is_multiple_of(2) {
-        return None;
-    }
-    Some(CORE_PRESETS[((shuffle - 1) / 2) as usize % CORE_PRESETS.len()])
+fn candidates_for_phrase(_kind: PhraseKind) -> &'static [VisualFamily] {
+    &ALL_ILLUSIONS
 }
 
 fn modifier_for_phrase(phrase: PhraseKind, key: u64) -> ModifierKind {
@@ -581,20 +600,24 @@ fn modifier_for_phrase(phrase: PhraseKind, key: u64) -> ModifierKind {
         PhraseKind::Verse => &[
             ModifierKind::BeatZoom,
             ModifierKind::PaletteDrift,
-            ModifierKind::EchoTrails,
+            ModifierKind::HighSparkle,
         ],
         PhraseKind::Up => &[
+            ModifierKind::BassWarp,
+            ModifierKind::ChromaticSplit,
             ModifierKind::BeatZoom,
-            ModifierKind::PaletteDrift,
-            ModifierKind::EchoTrails,
         ],
         PhraseKind::Chorus => &[
             ModifierKind::BeatZoom,
-            ModifierKind::ImpactBloom,
-            ModifierKind::PaletteDrift,
+            ModifierKind::MirrorFold,
+            ModifierKind::ChromaticSplit,
         ],
         PhraseKind::Down => &[ModifierKind::EchoTrails, ModifierKind::PaletteDrift],
-        PhraseKind::Bridge => &[ModifierKind::PaletteDrift, ModifierKind::EchoTrails],
+        PhraseKind::Bridge => &[
+            ModifierKind::MirrorFold,
+            ModifierKind::PaletteDrift,
+            ModifierKind::HighSparkle,
+        ],
         PhraseKind::Fill => &[ModifierKind::ImpactBloom, ModifierKind::BeatZoom],
         PhraseKind::Unknown => &[ModifierKind::PaletteDrift, ModifierKind::BeatZoom],
     };
@@ -603,14 +626,17 @@ fn modifier_for_phrase(phrase: PhraseKind, key: u64) -> ModifierKind {
 
 fn modifier_compatible(base: VisualFamily, modifier: ModifierKind) -> bool {
     match modifier {
-        ModifierKind::PaletteDrift | ModifierKind::BeatZoom | ModifierKind::ImpactBloom => true,
-        ModifierKind::EchoTrails => matches!(
+        ModifierKind::MirrorFold => !matches!(
             base,
-            VisualFamily::RecursiveTunnel
-                | VisualFamily::RibbonFlow
-                | VisualFamily::ContourField
-                | VisualFamily::HelixSpiral
+            VisualFamily::WarpSpiral | VisualFamily::RotatingSnakes | VisualFamily::RadialEscalator
         ),
+        ModifierKind::EchoTrails => !matches!(
+            base,
+            VisualFamily::MoireRings | VisualFamily::NeonLattice | VisualFamily::OrbitalMesh
+        ),
+        ModifierKind::HighSparkle => !matches!(base, VisualFamily::EventHorizon),
+        ModifierKind::ChromaticSplit => !matches!(base, VisualFamily::PrismVortex),
+        _ => true,
     }
 }
 
@@ -620,19 +646,19 @@ fn budgets_for(
     energy: f32,
 ) -> (f32, f32, f32, f32) {
     let (profile_motion, profile_detail, profile_brightness) = match intensity {
-        IntensityProfile::Chill => (0.72, 0.48, 0.68),
-        IntensityProfile::Balanced => (0.92, 0.56, 0.78),
-        IntensityProfile::Wild => (1.18, 0.72, 0.86),
+        IntensityProfile::Chill => (0.76, 0.55, 0.72),
+        IntensityProfile::Balanced => (1.04, 0.76, 0.88),
+        IntensityProfile::Wild => (1.45, 1.0, 1.0),
     };
     let (motion, detail, density, brightness) = match phrase {
-        PhraseKind::Intro | PhraseKind::Outro => (0.58, 0.42, 0.3, 0.62),
-        PhraseKind::Verse => (0.76, 0.52, 0.42, 0.72),
-        PhraseKind::Up => (0.94, 0.6, 0.5, 0.8),
-        PhraseKind::Chorus => (1.04, 0.68, 0.58, 0.88),
-        PhraseKind::Down => (0.5, 0.36, 0.26, 0.56),
-        PhraseKind::Bridge => (0.72, 0.56, 0.4, 0.68),
-        PhraseKind::Fill => (0.88, 0.58, 0.48, 0.78),
-        PhraseKind::Unknown => (0.64, 0.46, 0.34, 0.66),
+        PhraseKind::Intro | PhraseKind::Outro => (0.58, 0.48, 0.36, 0.65),
+        PhraseKind::Verse => (0.78, 0.62, 0.55, 0.76),
+        PhraseKind::Up => (0.98, 0.72, 0.68, 0.84),
+        PhraseKind::Chorus => (1.1, 0.82, 0.78, 0.94),
+        PhraseKind::Down => (0.52, 0.42, 0.32, 0.58),
+        PhraseKind::Bridge => (0.76, 0.68, 0.5, 0.72),
+        PhraseKind::Fill => (0.92, 0.7, 0.58, 0.82),
+        PhraseKind::Unknown => (0.68, 0.55, 0.45, 0.7),
     };
     (
         motion * profile_motion * (0.86 + energy * 0.28),
@@ -679,11 +705,11 @@ fn phrase_for_music_state(state: MusicState) -> PhraseKind {
 
 fn manual_family(style: VisualStyle) -> VisualFamily {
     match style {
-        VisualStyle::Auto | VisualStyle::Fluid => VisualFamily::ColorSplotchWave,
-        VisualStyle::Tunnel => VisualFamily::RecursiveTunnel,
-        VisualStyle::Waves => VisualFamily::MultiLayerWaveField,
-        VisualStyle::Pulse => VisualFamily::RingPulseSystem,
-        VisualStyle::Burst => VisualFamily::FractalBloom,
+        VisualStyle::Auto | VisualStyle::Tunnel => VisualFamily::WarpSpiral,
+        VisualStyle::Fluid => VisualFamily::LiquidCircuit,
+        VisualStyle::Waves => VisualFamily::SineInterference,
+        VisualStyle::Pulse => VisualFamily::MoireRings,
+        VisualStyle::Burst => VisualFamily::PrismVortex,
     }
 }
 
@@ -886,7 +912,7 @@ mod tests {
             VisualStyle::Tunnel,
             IntensityProfile::Wild,
         );
-        assert_eq!(settled.primary, VisualFamily::RecursiveTunnel);
+        assert_eq!(settled.primary, VisualFamily::WarpSpiral);
         assert!(settled.secondary.is_none());
     }
 
@@ -894,7 +920,7 @@ mod tests {
     fn recent_scene_history_is_bounded() {
         let mut director = SceneDirector::new(1);
         for index in 0..32 {
-            director.remember(VisualFamily::ContourField, None, index);
+            director.remember(VisualFamily::LiquidCircuit, None, index);
         }
         assert_eq!(director.recent.len(), HISTORY_LIMIT);
     }
@@ -935,7 +961,7 @@ mod tests {
             reactivity: 1.0,
             ..quiet
         };
-        let first_feature = director.update(
+        let _ = director.update(
             15.1,
             now,
             boundary,
@@ -944,11 +970,6 @@ mod tests {
             IntensityProfile::Balanced,
         );
         assert_eq!(director.auto_shuffle_counter, 1);
-        assert!(
-            first_feature.primary == VisualFamily::ColorSplotchWave
-                || first_feature.secondary == Some(VisualFamily::ColorSplotchWave),
-            "the first automatic shuffle must surface the signature wave"
-        );
 
         let mut fallback = SceneDirector::new(18);
         let _ = fallback.update(
@@ -971,122 +992,13 @@ mod tests {
     }
 
     #[test]
-    fn auto_library_contains_twelve_distinct_abstract_presets() {
-        let distinct = ALL_PRESETS
+    fn auto_library_contains_twenty_six_distinct_illusions() {
+        let distinct = ALL_ILLUSIONS
             .iter()
             .copied()
             .collect::<std::collections::HashSet<_>>();
-        assert_eq!(ALL_PRESETS.len(), 12);
-        assert_eq!(distinct.len(), ALL_PRESETS.len());
-        assert!(
-            CORE_PRESETS
-                .iter()
-                .all(|family| ALL_PRESETS.contains(family)),
-            "the core rotation must be a subset of the full library"
-        );
-        assert!(ALL_PRESETS.contains(&VisualFamily::ColorSplotchWave));
-        assert!(ALL_PRESETS.contains(&VisualFamily::FractalBloom));
-        assert!(ALL_PRESETS.contains(&VisualFamily::HelixSpiral));
-        assert!(ALL_PRESETS.contains(&VisualFamily::FractalWaveHybrid));
-    }
-
-    #[test]
-    fn core_rotation_starts_with_signature_wave_and_repeats() {
-        assert_eq!(core_for_auto_shuffle(0), None);
-        assert_eq!(
-            core_for_auto_shuffle(1),
-            Some(VisualFamily::ColorSplotchWave)
-        );
-        assert_eq!(core_for_auto_shuffle(2), None);
-        assert_eq!(
-            core_for_auto_shuffle(3),
-            Some(VisualFamily::MultiLayerWaveField)
-        );
-        assert_eq!(core_for_auto_shuffle(5), Some(VisualFamily::FractalBloom));
-        assert_eq!(
-            core_for_auto_shuffle(7),
-            Some(VisualFamily::RecursiveTunnel)
-        );
-        assert_eq!(
-            core_for_auto_shuffle(9),
-            Some(VisualFamily::ColorSplotchWave)
-        );
-    }
-
-    #[test]
-    fn four_minute_quiet_fallback_surfaces_every_core_preset() {
-        let now = Instant::now();
-        let phrase = context(now, PhraseKind::Verse, 0);
-        let frame = VisualInputFrame {
-            state: MusicState::Flow,
-            energy: 0.28,
-            reactivity: 1.0,
-            ..Default::default()
-        };
-        let mut director = SceneDirector::new(81);
-        let mut shown = std::collections::HashSet::new();
-        let initial = director.update(
-            0.0,
-            now,
-            frame,
-            &phrase,
-            VisualStyle::Auto,
-            IntensityProfile::Chill,
-        );
-        shown.insert(initial.primary);
-
-        for shuffle in 1..=7 {
-            let plan = director.update(
-                shuffle as f32 * 28.9,
-                now,
-                frame,
-                &phrase,
-                VisualStyle::Auto,
-                IntensityProfile::Chill,
-            );
-            shown.insert(plan.primary);
-            if let Some(secondary) = plan.secondary {
-                shown.insert(secondary);
-            }
-            let settled = director.update(
-                shuffle as f32 * 28.9 + 4.0,
-                now,
-                frame,
-                &phrase,
-                VisualStyle::Auto,
-                IntensityProfile::Chill,
-            );
-            shown.insert(settled.primary);
-        }
-
-        assert!(shown.contains(&VisualFamily::ColorSplotchWave));
-        assert!(shown.contains(&VisualFamily::MultiLayerWaveField));
-        assert!(shown.contains(&VisualFamily::FractalBloom));
-        assert!(shown.contains(&VisualFamily::RecursiveTunnel));
-    }
-
-    #[test]
-    fn legacy_manual_styles_map_to_the_closest_abstract_preset() {
-        assert_eq!(
-            manual_family(VisualStyle::Fluid),
-            VisualFamily::ColorSplotchWave
-        );
-        assert_eq!(
-            manual_family(VisualStyle::Waves),
-            VisualFamily::MultiLayerWaveField
-        );
-        assert_eq!(
-            manual_family(VisualStyle::Pulse),
-            VisualFamily::RingPulseSystem
-        );
-        assert_eq!(
-            manual_family(VisualStyle::Tunnel),
-            VisualFamily::RecursiveTunnel
-        );
-        assert_eq!(
-            manual_family(VisualStyle::Burst),
-            VisualFamily::FractalBloom
-        );
+        assert_eq!(ALL_ILLUSIONS.len(), 26);
+        assert_eq!(distinct.len(), ALL_ILLUSIONS.len());
     }
 
     #[test]
@@ -1097,33 +1009,6 @@ mod tests {
         director.remember(repeated, None, 1);
         director.remember(repeated, None, 2);
         assert_ne!(director.choose_primary(PhraseKind::Intro, key), repeated);
-    }
-
-    #[test]
-    fn abstract_presets_reject_geometry_destroying_modifiers() {
-        for family in ALL_PRESETS {
-            assert!(modifier_compatible(family, ModifierKind::PaletteDrift));
-            assert!(modifier_compatible(family, ModifierKind::BeatZoom));
-            assert!(modifier_compatible(family, ModifierKind::ImpactBloom));
-            assert!(
-                !modifier_compatible(family, ModifierKind::EchoTrails)
-                    || matches!(
-                        family,
-                        VisualFamily::RecursiveTunnel
-                            | VisualFamily::RibbonFlow
-                            | VisualFamily::ContourField
-                            | VisualFamily::HelixSpiral
-                    )
-            );
-        }
-        assert!(modifier_compatible(
-            VisualFamily::RibbonFlow,
-            ModifierKind::EchoTrails
-        ));
-        assert!(!modifier_compatible(
-            VisualFamily::FractalBloom,
-            ModifierKind::EchoTrails
-        ));
     }
 
     #[test]

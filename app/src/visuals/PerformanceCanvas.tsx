@@ -17,8 +17,6 @@ interface SmoothedState {
   colors: number[][];
 }
 
-const ambientPreviewFamilies = [0, 1, 2, 3] as const;
-
 export function PerformanceCanvas({ settings, className = "", paused = false }: PerformanceCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const settingsRef = useRef(settings);
@@ -61,8 +59,8 @@ export function PerformanceCanvas({ settings, className = "", paused = false }: 
     let lastFrame = startedAt;
     let animationFrame = 0;
     const smoothed: SmoothedState = {
-      primaryFamily: ambientPreviewFamilies[0],
-      secondaryFamily: ambientPreviewFamilies[0],
+      primaryFamily: 3,
+      secondaryFamily: 3,
       transition: 0,
       colors: paletteColors(settings.palette).map((color) => [...color]),
     };
@@ -76,7 +74,7 @@ export function PerformanceCanvas({ settings, className = "", paused = false }: 
       const delta = Math.max(0.001, Math.min(0.1, (now - lastFrame) / 1000));
       lastFrame = now;
       const currentSettings = settingsRef.current;
-      const targetFamily = ambientPreviewFamilies[Math.floor(elapsed / 10) % ambientPreviewFamilies.length];
+      const targetFamily = 3;
       const targetColors = paletteColors(currentSettings.palette);
       const intensities = intensityValues(currentSettings.intensity);
       const drive = 0.12;
@@ -129,7 +127,7 @@ export function PerformanceCanvas({ settings, className = "", paused = false }: 
       gl.uniform4f(uniforms.styleA, smoothed.primaryFamily, smoothed.secondaryFamily, 1 - secondaryMix, secondaryMix);
       gl.uniform4f(uniforms.styleB, 0.82 + drive * 0.18, drive, 0.37, 0);
       gl.uniform4f(uniforms.effects, 0.12, 0, currentSettings.colorChange * (0.8 + drive * 1.7), drive);
-      gl.uniform4f(uniforms.scene, intensities[0], intensities[1] * 0.8, intensities[1] * 0.42, intensities[2] * 0.82);
+      gl.uniform4f(uniforms.scene, intensities[0], intensities[1], intensities[1] * 0.62, intensities[2] * 0.82);
       gl.uniform4f(uniforms.modifiers, 0, currentSettings.colorChange * 0.28, -1, 0);
       gl.uniform4f(uniforms.reactive, 0, 0, 0, 0);
       gl.drawArrays(gl.TRIANGLES, 0, 3);
