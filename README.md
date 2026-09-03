@@ -13,6 +13,7 @@ The laptop window is a compact controller. The performance window is a borderles
 - Quiet, Flow, Groove, Build, Impact, Peak, and Breakdown musical behavior
 - Auto-only direction across 28 shuffled analytic illusions, with exactly one family outside a normalized transition and at most two compatible modifiers
 - Perspective techno lasers, a spinning alien head, kinetic Op Art bars, bulging checkerboards, wormholes, moiré interference, impossible grids, gravity lenses, chromatic mazes, and other motion-first illusion families
+- Native MilkDrop-inspired frame feedback with liquid afterimages, audio-reactive zoom/warp, restrained chromatic drift, and an original spectral signal ribbon—implemented locally with no Winamp API or preset dependency
 - Adaptive and fixed palettes, Chill/Balanced/Wild profiles, opt-in flash levels, and advanced reaction controls
 - A non-fullscreen **Test connection** workflow with Audio only, Renderer only, Full startup, and Safe renderer reports; versioned JSON, readable copy, and durable unclean-exit reconstruction
 - A proportional audio-drive dial plus distinct bass geometry waves, midrange bends, high-frequency color shards, energy-rise depth changes, and music-boundary scene transitions
@@ -85,7 +86,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-Windows and macOS CI compile, lint, test, and build platform bundles. These jobs are compile/package checks, not real Rekordbox audio integration tests. Unit tests also cover diagnostic schema/recovery, cancellation, format conversion/resampling, explicit connection facts, scene normalization, modifier compatibility/envelopes/brightness caps, native-close stop routing, and WGSL validation.
+Windows and macOS CI compile, lint, test, and build platform bundles. These jobs are compile/package checks, not real Rekordbox audio integration tests. Unit tests also cover diagnostic schema/recovery, cancellation, format conversion/resampling, explicit connection facts, scene normalization, modifier compatibility/envelopes/brightness caps, bounded feedback profiles, native-close stop routing, and WGSL validation.
 
 ## Repository map
 

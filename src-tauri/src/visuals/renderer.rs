@@ -20,14 +20,45 @@ use crate::{
 };
 
 use super::{
-    intensity_ceiling, intensity_values, palette_for, smooth_palette, FlashEnvelope, PaletteName,
-    SceneDirector, SmoothedVisualState, VisualSettings,
+    intensity_ceiling, intensity_values, palette_for, smooth_palette, FlashEnvelope, ModifierKind,
+    PaletteName, SceneDirector, SmoothedVisualState, VisualSettings,
 };
 
 const FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
 const MAX_RENDER_PIXELS: u64 = 1_920 * 1_080;
 const INTERNAL_RENDER_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 const MAIN_THREAD_SURFACE_TIMEOUT: Duration = Duration::from_secs(5);
+
+fn performance_bind_group_layout_entries() -> [wgpu::BindGroupLayoutEntry; 3] {
+    [
+        wgpu::BindGroupLayoutEntry {
+            binding: 0,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Buffer {
+                ty: wgpu::BufferBindingType::Uniform,
+                has_dynamic_offset: false,
+                min_binding_size: None,
+            },
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+            binding: 1,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        },
+        wgpu::BindGroupLayoutEntry {
+            binding: 2,
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        },
+    ]
+}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -183,6 +214,7 @@ struct VisualUniforms {
     scene: [f32; 4],
     modifiers: [f32; 4],
     reactive: [f32; 4],
+    feedback: [f32; 4],
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -236,9 +268,12 @@ struct Renderer {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
-    _render_target: wgpu::Texture,
-    render_view: wgpu::TextureView,
+    bind_group_layout: wgpu::BindGroupLayout,
+    feedback_sampler: wgpu::Sampler,
+    feedback_bind_groups: [wgpu::BindGroup; 2],
+    _render_targets: [wgpu::Texture; 2],
+    render_views: [wgpu::TextureView; 2],
+    feedback_source_index: usize,
     render_width: u32,
     render_height: u32,
     blitter: TextureBlitter,
@@ -380,24 +415,7 @@ impl Renderer {
         });
         let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
             label: Some("Visual parameter layout"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Uniform,
-                    has_dynamic_offset: false,
-                    min_binding_size: None,
-                },
-                count: None,
-            }],
-        });
-        let bind_group = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("Visual parameter binding"),
-            layout: &bind_group_layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: uniform_buffer.as_entire_binding(),
-            }],
+            entries: &performance_bind_group_layout_entries(),
         });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("Performance pipeline layout"),
@@ -452,8 +470,24 @@ impl Renderer {
             }),
         );
 
-        let (render_target, render_view) =
-            create_render_target(&device, render_width, render_height);
+        let feedback_sampler = device.create_sampler(&wgpu::SamplerDescriptor {
+            label: Some("PulseBridge feedback sampler"),
+            address_mode_u: wgpu::AddressMode::ClampToEdge,
+            address_mode_v: wgpu::AddressMode::ClampToEdge,
+            mag_filter: wgpu::FilterMode::Linear,
+            min_filter: wgpu::FilterMode::Linear,
+            ..Default::default()
+        });
+        let (render_targets, render_views) =
+            create_render_targets(&device, render_width, render_height);
+        clear_render_targets(&device, &queue, &render_views);
+        let feedback_bind_groups = create_feedback_bind_groups(
+            &device,
+            &bind_group_layout,
+            &uniform_buffer,
+            &feedback_sampler,
+            &render_views,
+        );
         let blitter = TextureBlitterBuilder::new(&device, config.format)
             .sample_type(wgpu::FilterMode::Linear)
             .build();
@@ -467,9 +501,12 @@ impl Renderer {
             config,
             pipeline,
             uniform_buffer,
-            bind_group,
-            _render_target: render_target,
-            render_view,
+            bind_group_layout,
+            feedback_sampler,
+            feedback_bind_groups,
+            _render_targets: render_targets,
+            render_views,
+            feedback_source_index: 0,
             render_width,
             render_height,
             blitter,
@@ -608,6 +645,20 @@ impl Renderer {
             let mid_motion = (smoothed.mid_motion * reaction_gain).clamp(0.0, 1.0);
             let high_hit = (smoothed.high_hit * reaction_gain).clamp(0.0, 1.0);
             let energy_rise = (smoothed.energy_rise * reaction_gain).clamp(0.0, 1.0);
+            let echo_trails = scene
+                .modifiers
+                .iter()
+                .filter(|modifier| modifier.kind == Some(ModifierKind::EchoTrails))
+                .map(|modifier| modifier.strength)
+                .fold(0.0_f32, f32::max);
+            let feedback = feedback_values(
+                current_settings.intensity,
+                echo_trails,
+                drive,
+                bass_hit,
+                mid_motion,
+                high_hit,
+            );
             let uniforms = VisualUniforms {
                 resolution_time: [
                     renderer.render_width as f32,
@@ -679,6 +730,7 @@ impl Renderer {
                     scene.modifiers[1].strength,
                 ],
                 reactive: [bass_hit, mid_motion, high_hit, energy_rise],
+                feedback,
             };
             let presented = renderer.render(uniforms)?;
             if presented {
@@ -775,11 +827,13 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Performance frame encoder"),
             });
+        let source_index = self.feedback_source_index;
+        let destination_index = 1 - source_index;
         {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Performance frame"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &self.render_view,
+                    view: &self.render_views[destination_index],
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -790,46 +844,155 @@ impl Renderer {
                 ..Default::default()
             });
             pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_group, &[]);
+            pass.set_bind_group(0, &self.feedback_bind_groups[source_index], &[]);
             pass.draw(0..3, 0..1);
         }
-        self.blitter
-            .copy(&self.device, &mut encoder, &self.render_view, &view);
+        self.blitter.copy(
+            &self.device,
+            &mut encoder,
+            &self.render_views[destination_index],
+            &view,
+        );
         self.queue.submit(Some(encoder.finish()));
         self.queue.present(frame);
+        self.feedback_source_index = destination_index;
         Ok(true)
     }
 
     fn resize_render_target(&mut self, width: u32, height: u32) {
-        let (render_target, render_view) = create_render_target(&self.device, width, height);
-        self._render_target = render_target;
-        self.render_view = render_view;
+        let (render_targets, render_views) = create_render_targets(&self.device, width, height);
+        clear_render_targets(&self.device, &self.queue, &render_views);
+        let feedback_bind_groups = create_feedback_bind_groups(
+            &self.device,
+            &self.bind_group_layout,
+            &self.uniform_buffer,
+            &self.feedback_sampler,
+            &render_views,
+        );
+        self._render_targets = render_targets;
+        self.render_views = render_views;
+        self.feedback_bind_groups = feedback_bind_groups;
+        self.feedback_source_index = 0;
         self.render_width = width;
         self.render_height = height;
     }
 }
 
-fn create_render_target(
+fn create_render_targets(
     device: &wgpu::Device,
     width: u32,
     height: u32,
-) -> (wgpu::Texture, wgpu::TextureView) {
-    let texture = device.create_texture(&wgpu::TextureDescriptor {
-        label: Some("PulseBridge performance render target"),
-        size: wgpu::Extent3d {
-            width: width.max(1),
-            height: height.max(1),
-            depth_or_array_layers: 1,
-        },
-        mip_level_count: 1,
-        sample_count: 1,
-        dimension: wgpu::TextureDimension::D2,
-        format: INTERNAL_RENDER_FORMAT,
-        usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-        view_formats: &[],
+) -> ([wgpu::Texture; 2], [wgpu::TextureView; 2]) {
+    let create = |label| {
+        device.create_texture(&wgpu::TextureDescriptor {
+            label: Some(label),
+            size: wgpu::Extent3d {
+                width: width.max(1),
+                height: height.max(1),
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: INTERNAL_RENDER_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            view_formats: &[],
+        })
+    };
+    let targets = [
+        create("PulseBridge feedback target A"),
+        create("PulseBridge feedback target B"),
+    ];
+    let views = [
+        targets[0].create_view(&wgpu::TextureViewDescriptor::default()),
+        targets[1].create_view(&wgpu::TextureViewDescriptor::default()),
+    ];
+    (targets, views)
+}
+
+fn create_feedback_bind_groups(
+    device: &wgpu::Device,
+    layout: &wgpu::BindGroupLayout,
+    uniform_buffer: &wgpu::Buffer,
+    sampler: &wgpu::Sampler,
+    render_views: &[wgpu::TextureView; 2],
+) -> [wgpu::BindGroup; 2] {
+    std::array::from_fn(|index| {
+        device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some(if index == 0 {
+                "PulseBridge feedback binding A"
+            } else {
+                "PulseBridge feedback binding B"
+            }),
+            layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: uniform_buffer.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: wgpu::BindingResource::TextureView(&render_views[index]),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::Sampler(sampler),
+                },
+            ],
+        })
+    })
+}
+
+fn clear_render_targets(
+    device: &wgpu::Device,
+    queue: &wgpu::Queue,
+    render_views: &[wgpu::TextureView; 2],
+) {
+    let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
+        label: Some("Clear feedback history"),
     });
-    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-    (texture, view)
+    for view in render_views {
+        let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("Clear feedback target"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                depth_slice: None,
+                resolve_target: None,
+                ops: wgpu::Operations {
+                    load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                    store: wgpu::StoreOp::Store,
+                },
+            })],
+            ..Default::default()
+        });
+    }
+    queue.submit(Some(encoder.finish()));
+}
+
+fn feedback_values(
+    intensity: super::IntensityProfile,
+    echo_trails: f32,
+    drive: f32,
+    bass_hit: f32,
+    mid_motion: f32,
+    high_hit: f32,
+) -> [f32; 4] {
+    let echo_trails = echo_trails.clamp(0.0, 1.0);
+    let drive = drive.clamp(0.0, 1.0);
+    let bass_hit = bass_hit.clamp(0.0, 1.0);
+    let mid_motion = mid_motion.clamp(0.0, 1.0);
+    let high_hit = high_hit.clamp(0.0, 1.0);
+    let (base_persistence, zoom, warp, chroma) = match intensity {
+        super::IntensityProfile::Chill => (0.08, 0.00055, 0.00032, 0.0015),
+        super::IntensityProfile::Balanced => (0.12, 0.0008, 0.00048, 0.0025),
+        super::IntensityProfile::Wild => (0.16, 0.00105, 0.0007, 0.0038),
+    };
+    [
+        (base_persistence + echo_trails * 0.4 + drive * 0.035).clamp(0.0, 0.62),
+        (zoom + echo_trails * 0.00175 + bass_hit * 0.0007).clamp(0.0, 0.004),
+        (warp + echo_trails * 0.0017 + mid_motion * 0.0012).clamp(0.0, 0.004),
+        (chroma + echo_trails * 0.007 + high_hit * 0.0045).clamp(0.0, 0.016),
+    ]
 }
 
 #[cfg(target_os = "windows")]
@@ -996,16 +1159,7 @@ async fn probe_renderer_async(safe_mode: bool) -> Result<DiagnosticRendererInfo,
     let pipeline_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let bind_group_layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
         label: Some("Diagnostic uniform layout"),
-        entries: &[wgpu::BindGroupLayoutEntry {
-            binding: 0,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: None,
-            },
-            count: None,
-        }],
+        entries: &performance_bind_group_layout_entries(),
     });
     let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
         label: Some("Diagnostic pipeline layout"),
@@ -1157,8 +1311,10 @@ mod tests {
     use std::sync::{atomic::AtomicBool, Mutex};
 
     use super::{
-        performance_render_size, transition_renderer_failure, RendererLifecycle, RendererStatus,
+        feedback_values, performance_render_size, transition_renderer_failure, RendererLifecycle,
+        RendererStatus,
     };
+    use crate::visuals::IntensityProfile;
 
     #[test]
     fn native_performance_shader_is_valid_wgsl() {
@@ -1191,5 +1347,19 @@ mod tests {
         assert_eq!(performance_render_size(1_920, 1_080), (1_920, 1_080));
         let (width, height) = performance_render_size(3_840, 2_160);
         assert_eq!((width, height), (1_920, 1_080));
+    }
+
+    #[test]
+    fn feedback_profile_is_bounded_and_scales_with_intensity_and_echo() {
+        let chill = feedback_values(IntensityProfile::Chill, 0.0, 0.4, 0.3, 0.3, 0.3);
+        let balanced = feedback_values(IntensityProfile::Balanced, 0.0, 0.4, 0.3, 0.3, 0.3);
+        let wild_echo = feedback_values(IntensityProfile::Wild, 1.0, 1.0, 1.0, 1.0, 1.0);
+
+        assert!(chill[0] < balanced[0]);
+        assert!(balanced[0] < wild_echo[0]);
+        assert!(wild_echo[0] <= 0.62);
+        assert!(wild_echo[1] <= 0.004);
+        assert!(wild_echo[2] <= 0.004);
+        assert!(wild_echo[3] <= 0.016);
     }
 }

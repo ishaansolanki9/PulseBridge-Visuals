@@ -13,9 +13,12 @@ struct VisualParams {
     scene: vec4<f32>,
     modifiers: vec4<f32>,
     reactive: vec4<f32>,
+    feedback: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> params: VisualParams;
+@group(0) @binding(1) var feedback_texture: texture_2d<f32>;
+@group(0) @binding(2) var feedback_sampler: sampler;
 
 const PI: f32 = 3.14159265359;
 const TAU: f32 = 6.28318530718;
@@ -471,9 +474,78 @@ fn visual_family(id: u32, uv: vec2<f32>, time: f32) -> vec3<f32> {
     }
 }
 
+fn feedback_frame(screen_uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let resolution = max(params.resolution_time.xy, vec2<f32>(1.0));
+    let aspect = resolution.x / resolution.y;
+    var point = screen_uv * 2.0 - 1.0;
+    point.x *= aspect;
+    let radius = max(length(point), 0.001);
+    let radial = point / radius;
+    let seed_phase = params.style_b.z * TAU;
+    let turn = (0.35 + sin(time * 0.11 + seed_phase) * 0.65)
+        * (params.feedback.y * 0.48 + params.feedback.z * 0.36);
+    point = rotate2(point, turn);
+    point *= 1.0 - params.feedback.y
+        * (1.0 + params.pulse.y * 0.72 + params.reactive.x * 0.58);
+    let liquid_flow = vec2<f32>(
+        sin(point.y * 3.7 + time * 0.21 + seed_phase),
+        cos(point.x * 3.1 - time * 0.17 - seed_phase * 0.7),
+    );
+    let radial_flow = radial
+        * sin(radius * (5.0 + params.scene.z * 2.5) - time * 0.34 + seed_phase)
+        * (0.35 + params.reactive.x * 0.65);
+    point += (liquid_flow + radial_flow) * params.feedback.z;
+
+    point.x /= aspect;
+    let sample_uv = point * 0.5 + 0.5;
+    let edge = smoothstep(0.0, 0.025, sample_uv.x)
+        * (1.0 - smoothstep(0.975, 1.0, sample_uv.x))
+        * smoothstep(0.0, 0.025, sample_uv.y)
+        * (1.0 - smoothstep(0.975, 1.0, sample_uv.y));
+    let split_direction = vec2<f32>(
+        cos(seed_phase + time * 0.07),
+        sin(seed_phase * 0.73 - time * 0.06),
+    ) * params.feedback.w;
+    let center = textureSample(feedback_texture, feedback_sampler, sample_uv).rgb;
+    let split = vec3<f32>(
+        textureSample(feedback_texture, feedback_sampler, sample_uv + split_direction).r,
+        center.g,
+        textureSample(feedback_texture, feedback_sampler, sample_uv - split_direction).b,
+    );
+    let hue_drift = clamp(params.feedback.w * 5.0, 0.0, 0.08);
+    return mix(split, split.gbr, hue_drift) * edge;
+}
+
+fn spectral_signal_ribbon(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let drive = clamp(params.style_b.y, 0.0, 1.0);
+    let trails = modifier_strength(4u);
+    let phase = phase_time(time) * 1.35 + params.style_b.z * TAU;
+    let carrier = sin(uv.x * (7.0 + params.music.z * 6.0) + phase)
+        * (0.035 + params.music.y * 0.09);
+    let harmonic = sin(uv.x * (17.0 + params.music.w * 11.0) - phase * 1.47)
+        * (0.012 + params.music.w * 0.035);
+    let center = sin(time * 0.13 + params.style_b.z * 11.0) * 0.27;
+    let signal = center + carrier + harmonic;
+    let main_trace = glow(uv.y - signal, 78.0);
+    let after_trace = glow(uv.y - signal - 0.035 - params.reactive.y * 0.025, 34.0);
+    let sample_lights = ridge(
+        uv.x * (22.0 + params.scene.z * 12.0) - phase * 0.6,
+        16.0,
+    ) * main_trace;
+    let horizontal_gate = smoothstep(-1.32, -1.08, uv.x)
+        * (1.0 - smoothstep(1.08, 1.32, uv.x));
+    let strength = (0.025 + drive * 0.055 + trails * 0.12)
+        * (0.45 + params.music.z * 0.32 + params.music.w * 0.23);
+    return palette_field(uv.x * 0.14 + phase * 0.012)
+        * (main_trace + after_trace * 0.24 + sample_lights * 0.38)
+        * horizontal_gate
+        * strength;
+}
+
 @fragment
 fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let resolution = max(params.resolution_time.xy, vec2<f32>(1.0));
+    let screen_uv = position.xy / resolution;
     var uv = (position.xy * 2.0 - resolution) / resolution.y;
     let time = params.resolution_time.z;
     let drive = clamp(params.style_b.y, 0.0, 1.0);
@@ -603,11 +675,7 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         color += palette_field(seed) * mask * sparkle * drive * 0.32;
     }
 
-    let trails = modifier_strength(4u);
-    if trails > 0.001 {
-        let trail = ridge((uv.x - uv.y) * 6.0 - time * (0.8 + drive * 2.0), 14.0);
-        color += palette_field(uv.x * 0.14 - time * 0.03) * trail * trails * drive * 0.14;
-    }
+    color += spectral_signal_ribbon(uv, time);
 
     let chromatic = modifier_strength(6u);
     color = mix(color, color.gbr, chromatic * drive * params.pulse.z * 0.18);
@@ -618,6 +686,11 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         * impact_ring
         * max(impact_bloom, impact_level * drive)
         * 0.44;
+
+    let previous = feedback_frame(screen_uv, time);
+    let feedback_decay = 0.82 + params.feedback.x * 0.13;
+    let persistent_light = max(color, previous * feedback_decay);
+    color = mix(color, persistent_light, params.feedback.x);
 
     color = mix(color, vec3<f32>(1.0), params.pulse.w * (0.54 + drive * 0.16));
     let luminance = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
