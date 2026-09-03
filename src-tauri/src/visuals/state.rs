@@ -221,16 +221,16 @@ fn envelope(current: f32, target: f32, delta_seconds: f32, attack: f32, release:
 pub fn intensity_values(profile: IntensityProfile) -> [f32; 4] {
     match profile {
         IntensityProfile::Chill => [0.66, 0.62, 0.72, 0.45],
-        IntensityProfile::Balanced => [0.9, 0.92, 1.0, 0.78],
-        IntensityProfile::Wild => [1.35, 1.4, 1.25, 1.0],
+        IntensityProfile::Balanced => [0.85, 0.87, 0.94, 0.73],
+        IntensityProfile::Wild => [1.26, 1.31, 1.17, 0.93],
     }
 }
 
 pub fn intensity_ceiling(intensity: IntensityProfile) -> f32 {
     match intensity {
         IntensityProfile::Chill => 0.48,
-        IntensityProfile::Balanced => 0.74,
-        IntensityProfile::Wild => 1.0,
+        IntensityProfile::Balanced => 0.7,
+        IntensityProfile::Wild => 0.93,
     }
 }
 
@@ -324,7 +324,11 @@ mod tests {
 
     #[test]
     fn intensity_profiles_set_the_dial_ceiling_without_forcing_the_dial() {
-        assert_eq!(intensity_ceiling(IntensityProfile::Wild), 1.0);
+        assert_eq!(intensity_ceiling(IntensityProfile::Wild), 0.93);
+        assert!(
+            intensity_ceiling(IntensityProfile::Balanced)
+                < intensity_ceiling(IntensityProfile::Wild)
+        );
         assert!(intensity_ceiling(IntensityProfile::Balanced) < 0.8);
         assert!(intensity_ceiling(IntensityProfile::Chill) < 0.5);
     }

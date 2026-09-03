@@ -15,7 +15,7 @@ const PHRASE_STALE_AFTER: Duration = Duration::from_secs(5);
 #[repr(u32)]
 pub enum VisualFamily {
     #[default]
-    WarpSpiral = 0,
+    TechnoLaserGrid = 0,
     MoireRings = 1,
     InfiniteChecker = 2,
     NeonLattice = 3,
@@ -33,7 +33,7 @@ pub enum VisualFamily {
     QuantumWeave = 15,
     FractalCompass = 16,
     LiquidCircuit = 17,
-    AlienHeads = 18,
+    SpinningAlien = 18,
     PrismVortex = 19,
     DiamondDrift = 20,
     OrbitalMesh = 21,
@@ -41,10 +41,12 @@ pub enum VisualFamily {
     RadialEscalator = 23,
     ElectricTopography = 24,
     EventHorizon = 25,
+    KineticBars = 26,
+    BulgingChecker = 27,
 }
 
-const ALL_ILLUSIONS: [VisualFamily; 26] = [
-    VisualFamily::WarpSpiral,
+const ALL_ILLUSIONS: [VisualFamily; 28] = [
+    VisualFamily::TechnoLaserGrid,
     VisualFamily::MoireRings,
     VisualFamily::InfiniteChecker,
     VisualFamily::NeonLattice,
@@ -62,7 +64,7 @@ const ALL_ILLUSIONS: [VisualFamily; 26] = [
     VisualFamily::QuantumWeave,
     VisualFamily::FractalCompass,
     VisualFamily::LiquidCircuit,
-    VisualFamily::AlienHeads,
+    VisualFamily::SpinningAlien,
     VisualFamily::PrismVortex,
     VisualFamily::DiamondDrift,
     VisualFamily::OrbitalMesh,
@@ -70,6 +72,8 @@ const ALL_ILLUSIONS: [VisualFamily; 26] = [
     VisualFamily::RadialEscalator,
     VisualFamily::ElectricTopography,
     VisualFamily::EventHorizon,
+    VisualFamily::KineticBars,
+    VisualFamily::BulgingChecker,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -138,7 +142,7 @@ pub struct ScenePlan {
 impl Default for ScenePlan {
     fn default() -> Self {
         Self {
-            primary: VisualFamily::WarpSpiral,
+            primary: VisualFamily::TechnoLaserGrid,
             secondary: None,
             primary_mix: 1.0,
             secondary_mix: 0.0,
@@ -257,7 +261,7 @@ impl SceneDirector {
     pub fn new(session_seed: u64) -> Self {
         Self {
             session_seed: session_seed.max(1),
-            current_primary: VisualFamily::WarpSpiral,
+            current_primary: VisualFamily::TechnoLaserGrid,
             last_switch_seconds: -MIN_DWELL_SECONDS,
             active_transition: None,
             last_phrase_key: None,
@@ -628,7 +632,9 @@ fn modifier_compatible(base: VisualFamily, modifier: ModifierKind) -> bool {
     match modifier {
         ModifierKind::MirrorFold => !matches!(
             base,
-            VisualFamily::WarpSpiral | VisualFamily::RotatingSnakes | VisualFamily::RadialEscalator
+            VisualFamily::RotatingSnakes
+                | VisualFamily::RadialEscalator
+                | VisualFamily::BulgingChecker
         ),
         ModifierKind::EchoTrails => !matches!(
             base,
@@ -647,8 +653,8 @@ fn budgets_for(
 ) -> (f32, f32, f32, f32) {
     let (profile_motion, profile_detail, profile_brightness) = match intensity {
         IntensityProfile::Chill => (0.76, 0.55, 0.72),
-        IntensityProfile::Balanced => (1.04, 0.76, 0.88),
-        IntensityProfile::Wild => (1.45, 1.0, 1.0),
+        IntensityProfile::Balanced => (0.99, 0.72, 0.84),
+        IntensityProfile::Wild => (1.35, 0.94, 0.94),
     };
     let (motion, detail, density, brightness) = match phrase {
         PhraseKind::Intro | PhraseKind::Outro => (0.58, 0.48, 0.36, 0.65),
@@ -705,7 +711,8 @@ fn phrase_for_music_state(state: MusicState) -> PhraseKind {
 
 fn manual_family(style: VisualStyle) -> VisualFamily {
     match style {
-        VisualStyle::Auto | VisualStyle::Tunnel => VisualFamily::WarpSpiral,
+        VisualStyle::Auto => VisualFamily::TechnoLaserGrid,
+        VisualStyle::Tunnel => VisualFamily::HyperbolicTunnel,
         VisualStyle::Fluid => VisualFamily::LiquidCircuit,
         VisualStyle::Waves => VisualFamily::SineInterference,
         VisualStyle::Pulse => VisualFamily::MoireRings,
@@ -912,7 +919,7 @@ mod tests {
             VisualStyle::Tunnel,
             IntensityProfile::Wild,
         );
-        assert_eq!(settled.primary, VisualFamily::WarpSpiral);
+        assert_eq!(settled.primary, VisualFamily::HyperbolicTunnel);
         assert!(settled.secondary.is_none());
     }
 
@@ -992,13 +999,17 @@ mod tests {
     }
 
     #[test]
-    fn auto_library_contains_twenty_six_distinct_illusions() {
+    fn auto_library_contains_twenty_eight_distinct_illusions_without_a_spiral() {
         let distinct = ALL_ILLUSIONS
             .iter()
             .copied()
             .collect::<std::collections::HashSet<_>>();
-        assert_eq!(ALL_ILLUSIONS.len(), 26);
+        assert_eq!(ALL_ILLUSIONS.len(), 28);
         assert_eq!(distinct.len(), ALL_ILLUSIONS.len());
+        assert!(ALL_ILLUSIONS.contains(&VisualFamily::TechnoLaserGrid));
+        assert!(ALL_ILLUSIONS.contains(&VisualFamily::SpinningAlien));
+        assert!(ALL_ILLUSIONS.contains(&VisualFamily::KineticBars));
+        assert!(ALL_ILLUSIONS.contains(&VisualFamily::BulgingChecker));
     }
 
     #[test]

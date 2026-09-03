@@ -11,8 +11,8 @@ The laptop window is a compact controller. The performance window is a borderles
 - A bounded 5–30 second lock-free PCM ring buffer held only in RAM
 - 48 kHz analysis with RMS, sub/bass/mid/high energy, spectral flux, onset strength, beat pulse, rolling normalization, energy trends, and state hysteresis
 - Quiet, Flow, Groove, Build, Impact, Peak, and Breakdown musical behavior
-- Auto-only direction across 26 shuffled analytic illusions, with exactly one family outside a normalized transition and at most two compatible modifiers
-- Spirals, wormholes, moiré interference, rotating-snakes luminance drift, impossible grids, gravity lenses, alien heads, chromatic mazes, and other motion-first illusion families
+- Auto-only direction across 28 shuffled analytic illusions, with exactly one family outside a normalized transition and at most two compatible modifiers
+- Perspective techno lasers, a spinning alien head, kinetic Op Art bars, bulging checkerboards, wormholes, moiré interference, impossible grids, gravity lenses, chromatic mazes, and other motion-first illusion families
 - Adaptive and fixed palettes, Chill/Balanced/Wild profiles, opt-in flash levels, and advanced reaction controls
 - A non-fullscreen **Test connection** workflow with Audio only, Renderer only, Full startup, and Safe renderer reports; versioned JSON, readable copy, and durable unclean-exit reconstruction
 - A proportional audio-drive dial plus distinct bass geometry waves, midrange bends, high-frequency color shards, energy-rise depth changes, and music-boundary scene transitions

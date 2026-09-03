@@ -97,7 +97,7 @@ export function ControlApp() {
   const rekordboxSource = sources.find((source) => source.kind === "rekordboxProcess");
   const canStart = Boolean(isNativeApp && activeDisplay && selectedSource?.available);
   const status = runtimeStatus(runtime);
-  const fullRangeDial = settings.intensity === "wild";
+  const wideRangeDial = settings.intensity === "wild";
 
   const changeSettings = (change: Partial<VisualSettings>) => {
     const next = { ...settings, ...change };
@@ -190,7 +190,7 @@ export function ControlApp() {
         </div>
         <div className="preview-caption">
           <span>{runtime?.running ? "Preview paused to preserve performance" : "Live response activates in the output"}</span>
-          <strong>Auto · 26 illusions</strong>
+          <strong>Auto · 28 illusions</strong>
         </div>
       </section>
 
@@ -314,10 +314,10 @@ export function ControlApp() {
             <span><strong>Keep output on top</strong><small>For a dedicated display or projector</small></span>
           </label>
           <div className="safety-note">
-            <strong>{fullRangeDial ? "Full-range audio dial" : "Flash safety"}</strong>
+            <strong>{wideRangeDial ? "Wide-range audio dial" : "Flash safety"}</strong>
             <small>
-              {fullRangeDial
-                ? "Wild lets live audio climb from subtle movement to the full illusion ceiling."
+              {wideRangeDial
+                ? "Wild stays expansive while leaving a little more headroom at the peaks."
                 : "Off is the default. Motion impacts stay active without white flashes."}
             </small>
           </div>

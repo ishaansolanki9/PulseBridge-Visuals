@@ -17,6 +17,8 @@ interface SmoothedState {
   colors: number[][];
 }
 
+const ambientPreviewFamilies = [8, 9, 10, 11] as const;
+
 export function PerformanceCanvas({ settings, className = "", paused = false }: PerformanceCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const settingsRef = useRef(settings);
@@ -59,8 +61,8 @@ export function PerformanceCanvas({ settings, className = "", paused = false }: 
     let lastFrame = startedAt;
     let animationFrame = 0;
     const smoothed: SmoothedState = {
-      primaryFamily: 3,
-      secondaryFamily: 3,
+      primaryFamily: ambientPreviewFamilies[0],
+      secondaryFamily: ambientPreviewFamilies[0],
       transition: 0,
       colors: paletteColors(settings.palette).map((color) => [...color]),
     };
@@ -74,7 +76,7 @@ export function PerformanceCanvas({ settings, className = "", paused = false }: 
       const delta = Math.max(0.001, Math.min(0.1, (now - lastFrame) / 1000));
       lastFrame = now;
       const currentSettings = settingsRef.current;
-      const targetFamily = 3;
+      const targetFamily = ambientPreviewFamilies[Math.floor(elapsed / 10) % ambientPreviewFamilies.length];
       const targetColors = paletteColors(currentSettings.palette);
       const intensities = intensityValues(currentSettings.intensity);
       const drive = 0.12;

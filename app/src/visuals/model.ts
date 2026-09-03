@@ -2,8 +2,8 @@ import type { IntensityProfile, PaletteName } from "./types";
 
 export function intensityValues(profile: IntensityProfile): [number, number, number, number] {
   if (profile === "chill") return [0.66, 0.62, 0.72, 0.45];
-  if (profile === "wild") return [1.35, 1.4, 1.25, 1];
-  return [1.04, 0.98, 1, 0.78];
+  if (profile === "wild") return [1.26, 1.31, 1.17, 0.93];
+  return [0.85, 0.87, 0.94, 0.73];
 }
 
 export function paletteColors(name: PaletteName): number[][] {

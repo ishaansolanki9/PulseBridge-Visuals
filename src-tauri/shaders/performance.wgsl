@@ -98,15 +98,42 @@ fn phase_time(time: f32) -> f32 {
         + musical_nudge;
 }
 
-fn warp_spiral(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let radius = max(length(uv), 0.035);
-    let angle = atan2(uv.y, uv.x);
-    let depth = 1.0 / radius;
-    let phase = depth * 2.15 + angle * 5.0 - phase_time(time) * TAU;
-    let spiral = ridge(phase, 6.0);
-    let spokes = ridge(angle * 9.0 + depth * 0.42 + phase_time(time) * 0.7, 10.0) * 0.35;
-    return paint(angle / TAU + depth * 0.075, spiral * (0.45 + params.style_b.y * 0.7) + spokes)
-        * smoothstep(0.025, 0.32, radius);
+fn techno_laser_grid(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let turn = phase_time(time);
+    let floor_depth = max(uv.y + 1.08, 0.09);
+    let projected = vec2<f32>(uv.x / floor_depth, 1.0 / floor_depth + turn * 0.34);
+    let floor_gate = smoothstep(-1.18, -0.72, uv.y) * (1.0 - smoothstep(-0.05, 0.38, uv.y));
+    let grid_columns = ridge(projected.x * PI * 1.25, 14.0);
+    let grid_rows = ridge(projected.y * 2.15, 14.0);
+    let floor_grid = max(grid_columns * 0.72, grid_rows) * floor_gate;
+
+    let sweep = sin(turn * 0.42) * (0.24 + params.style_b.y * 0.18);
+    let left_beam = glow(
+        uv.x + 0.86 - (uv.y + 0.92) * (0.48 + sweep),
+        64.0,
+    );
+    let right_beam = glow(
+        uv.x - 0.86 + (uv.y + 0.92) * (0.48 - sweep),
+        64.0,
+    );
+    let center_beam = glow(
+        uv.x - sin(turn * 0.68) * (uv.y + 1.05) * 0.38,
+        82.0,
+    );
+    let upper_gate = smoothstep(-1.2, -0.78, uv.y) * (1.0 - smoothstep(0.94, 1.42, uv.y));
+    let lasers = (left_beam + right_beam) * 0.58 + center_beam * 0.42;
+
+    let frame_width = 0.58 + sin(turn * 0.2) * 0.08;
+    let frame = glow(abs(uv.x) - frame_width, 72.0)
+        * smoothstep(-0.78, -0.38, uv.y)
+        * (1.0 - smoothstep(0.64, 1.02, uv.y));
+    let light_bar = ridge((uv.y + 0.82) * 12.0 - turn * 0.9, 12.0)
+        * (1.0 - smoothstep(0.5, 0.82, abs(uv.x)));
+    let floor_color = palette_field(projected.y * 0.045 + projected.x * 0.025);
+    let laser_color = palette_field(0.24 + uv.y * 0.12 + turn * 0.012);
+    return floor_color * floor_grid * 0.48
+        + laser_color * lasers * upper_gate * (0.34 + params.style_b.y * 0.48)
+        + palette_field(0.68 + turn * 0.01) * (frame * 0.5 + light_bar * 0.2);
 }
 
 fn moire_rings(uv: vec2<f32>, time: f32) -> vec3<f32> {
@@ -270,20 +297,39 @@ fn liquid_circuit(uv: vec2<f32>, time: f32) -> vec3<f32> {
     return paint(dot(floor(p * 6.0), vec2<f32>(0.05, 0.09)) + phase_time(time) * 0.012, max(horizontal, vertical) * 0.52 + node * 0.4);
 }
 
-fn alien_heads(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let drift = vec2<f32>(phase_time(time) * 0.08, sin(phase_time(time) * 0.3) * 0.08);
-    let cell = fract((uv + drift) * vec2<f32>(2.2, 1.9)) - 0.5;
-    let head_radius = length(vec2<f32>(cell.x * 1.18, cell.y * 0.82));
-    let head = max(
-        (1.0 - smoothstep(0.4, 0.47, head_radius))
-            - (1.0 - smoothstep(0.33, 0.38, head_radius)),
-        0.0,
-    );
-    let eye_left = glow(length((cell - vec2<f32>(-0.14, 0.05)) * vec2<f32>(1.0, 1.8)) - 0.075, 55.0);
-    let eye_right = glow(length((cell - vec2<f32>(0.14, 0.05)) * vec2<f32>(1.0, 1.8)) - 0.075, 55.0);
-    let signal = ridge(cell.y * 18.0 - phase_time(time) * 2.0, 14.0)
-        * (1.0 - smoothstep(0.15, 0.4, abs(cell.x)));
-    return paint(cell.x * 0.4 + floor((uv.x + 1.5) * 2.2) * 0.13, head * 0.52 + (eye_left + eye_right) * (0.3 + params.style_b.y * 0.55) + signal * 0.18);
+fn spinning_alien(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let turn = phase_time(time) * 0.34;
+    let facing = cos(turn);
+    let side = sin(turn);
+    let face_width = 0.42 + abs(facing) * 0.58;
+    let tilted = rotate2(uv, sin(turn * 0.5) * 0.055);
+    let face = vec2<f32>((tilted.x - side * 0.055) / face_width, tilted.y + 0.025);
+    let chin_taper = 1.48 + max(-face.y, 0.0) * 1.35;
+    let head_distance = length(vec2<f32>(face.x * chin_taper, (face.y - 0.04) * 1.08));
+    let head_mask = 1.0 - smoothstep(0.57, 0.63, head_distance);
+    let head_edge = glow(head_distance - 0.605, 46.0);
+
+    let left_eye_point = rotate2(face - vec2<f32>(-0.19 + side * 0.035, 0.1), -0.22);
+    let right_eye_point = rotate2(face - vec2<f32>(0.19 + side * 0.035, 0.1), 0.22);
+    let left_eye_distance = length(left_eye_point * vec2<f32>(1.0, 2.75));
+    let right_eye_distance = length(right_eye_point * vec2<f32>(1.0, 2.75));
+    let left_eye = (1.0 - smoothstep(0.085, 0.13, left_eye_distance))
+        * clamp(0.76 - side * 0.58, 0.1, 1.0);
+    let right_eye = (1.0 - smoothstep(0.085, 0.13, right_eye_distance))
+        * clamp(0.76 + side * 0.58, 0.1, 1.0);
+    let eyes = left_eye + right_eye;
+    let scan = ridge(face.y * 19.0 - turn * 3.2, 15.0) * head_mask;
+    let facial_shade = clamp(0.45 + face.x * side * 0.9, 0.08, 1.0) * head_mask;
+
+    let halo_radius = length(uv);
+    let halo = ridge(halo_radius * 13.0 - turn * 1.1, 13.0)
+        * smoothstep(0.58, 0.72, halo_radius)
+        * (1.0 - smoothstep(1.12, 1.45, halo_radius));
+    let head_color = palette_field(0.2 + side * 0.13 + face.y * 0.16);
+    let eye_color = mix(params.color_c.rgb, params.color_d.rgb, side * 0.5 + 0.5);
+    return head_color * (facial_shade * 0.16 + head_edge * 0.62 + scan * 0.12)
+        + eye_color * eyes * (0.62 + params.style_b.y * 0.38)
+        + palette_field(halo_radius * 0.24 - turn * 0.025) * halo * 0.18;
 }
 
 fn prism_vortex(uv: vec2<f32>, time: f32) -> vec3<f32> {
@@ -356,9 +402,44 @@ fn event_horizon(uv: vec2<f32>, time: f32) -> vec3<f32> {
     return color * horizon;
 }
 
+fn kinetic_bars(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let turn = phase_time(time);
+    let p = rotate2(uv, sin(turn * 0.11) * 0.055);
+    let broad_bend = sin(p.y * 3.2 + turn * 0.62) * (0.17 + params.style_b.y * 0.11);
+    let fine_bend = sin(p.y * 8.5 - turn * 0.94) * 0.045;
+    let phase = (p.x + broad_bend + fine_bend) * (15.0 + params.scene.z * 7.0);
+    let bars = smoothstep(0.42, 0.72, sin(phase) * 0.5 + 0.5);
+    let edge = ridge(phase, 15.0);
+    let counter_phase = (p.x - broad_bend * 0.45) * 8.0 + p.y * 3.0 + turn * 0.36;
+    let counter = ridge(counter_phase, 13.0) * params.style_b.y;
+    let edge_color = palette_field(p.y * 0.14 + broad_bend * 0.32 + turn * 0.008);
+    let field_color = palette_field(0.55 + p.x * 0.1 - turn * 0.006);
+    return edge_color * (bars * 0.32 + edge * 0.42)
+        + field_color * counter * (1.0 - bars) * 0.28;
+}
+
+fn bulging_checker(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let turn = phase_time(time);
+    let radius = length(uv);
+    let bulge = 1.0
+        + exp(-radius * radius * 2.35)
+            * (0.54 + sin(turn * 0.42) * 0.09 + params.style_b.y * 0.18);
+    let p = rotate2(uv * bulge, sin(turn * 0.16) * 0.08);
+    let scale = 4.5 + params.scene.z * 2.6;
+    let cell = fract(p * scale + vec2<f32>(turn * 0.07, -turn * 0.055));
+    let tile = abs(step(0.5, cell.x) - step(0.5, cell.y));
+    let edge_x = ridge(p.x * scale * PI + turn * 0.22, 14.0);
+    let edge_y = ridge(p.y * scale * PI - turn * 0.18, 14.0);
+    let lens_ring = glow(radius - (0.46 + sin(turn * 0.38) * 0.08), 27.0);
+    let tile_color = palette_field(tile * 0.3 + radius * 0.16 + turn * 0.008);
+    let alternate_color = palette_field(0.62 - radius * 0.12 - turn * 0.006);
+    return mix(alternate_color * 0.08, tile_color * 0.48, tile)
+        + palette_field(p.x * 0.09 - p.y * 0.07) * (max(edge_x, edge_y) * 0.24 + lens_ring * 0.32);
+}
+
 fn visual_family(id: u32, uv: vec2<f32>, time: f32) -> vec3<f32> {
     switch id {
-        case 0u: { return warp_spiral(uv, time); }
+        case 0u: { return techno_laser_grid(uv, time); }
         case 1u: { return moire_rings(uv, time); }
         case 2u: { return infinite_checker(uv, time); }
         case 3u: { return neon_lattice(uv, time); }
@@ -376,7 +457,7 @@ fn visual_family(id: u32, uv: vec2<f32>, time: f32) -> vec3<f32> {
         case 15u: { return quantum_weave(uv, time); }
         case 16u: { return fractal_compass(uv, time); }
         case 17u: { return liquid_circuit(uv, time); }
-        case 18u: { return alien_heads(uv, time); }
+        case 18u: { return spinning_alien(uv, time); }
         case 19u: { return prism_vortex(uv, time); }
         case 20u: { return diamond_drift(uv, time); }
         case 21u: { return orbital_mesh(uv, time); }
@@ -384,7 +465,9 @@ fn visual_family(id: u32, uv: vec2<f32>, time: f32) -> vec3<f32> {
         case 23u: { return radial_escalator(uv, time); }
         case 24u: { return electric_topography(uv, time); }
         case 25u: { return event_horizon(uv, time); }
-        default: { return warp_spiral(uv, time); }
+        case 26u: { return kinetic_bars(uv, time); }
+        case 27u: { return bulging_checker(uv, time); }
+        default: { return techno_laser_grid(uv, time); }
     }
 }
 

@@ -2158,11 +2158,11 @@ One documentation caveat matters when studying: `docs/architecture.md` still con
 
 ### Updated one-sentence architecture
 
-PulseBridge is a Tauri desktop app whose React controller configures a native Rust pipeline that safely captures live audio, reduces it to bounded musical state, directs one of 26 Auto-selected analytic illusions, and renders a tear-free full-screen result through a 60 FPS `wgpu` surface.
+PulseBridge is a Tauri desktop app whose React controller configures a native Rust pipeline that safely captures live audio, reduces it to bounded musical state, directs one of 28 Auto-selected analytic illusions, and renders a tear-free full-screen result through a 60 FPS `wgpu` surface.
 
 ### Updated 90-second interview pitch
 
-> PulseBridge turns Rekordbox-related audio into native second-screen visuals. The React webview is only a controller and ambient preview; the real-time path is Rust. On Windows, the normal Rekordbox-aware source discovers the process but deliberately uses stable output loopback because process-specific activation caused native heap corruption on affected hardware. On macOS 14.2+, users can choose a private Rekordbox process tap, a global system-audio tap, or a microphone/line-in input. Samples are normalized to mono 48 kHz and sent through a bounded overwriting queue to FFT, rhythm, musical-state, and phrase-inference workers. The renderer derives a continuous audio-drive envelope and separate bass, mid, high, and energy-rise events. A deterministic-but-shuffled director selects among 26 illusions, avoids recent repetition, and waits for musical boundaries before transitions. Production output uses a physical-size FIFO surface at 60 FPS, an HD-capped internal shader target, linear upscaling, and derivative-aware line filtering. Transactional startup, first-frame readiness, explicit route facts, ambient degradation, and durable diagnostics make failures visible and recoverable.
+> PulseBridge turns Rekordbox-related audio into native second-screen visuals. The React webview is only a controller and ambient preview; the real-time path is Rust. On Windows, the normal Rekordbox-aware source discovers the process but deliberately uses stable output loopback because process-specific activation caused native heap corruption on affected hardware. On macOS 14.2+, users can choose a private Rekordbox process tap, a global system-audio tap, or a microphone/line-in input. Samples are normalized to mono 48 kHz and sent through a bounded overwriting queue to FFT, rhythm, musical-state, and phrase-inference workers. The renderer derives a continuous audio-drive envelope and separate bass, mid, high, and energy-rise events. A deterministic-but-shuffled director selects among 28 illusions, avoids recent repetition, and waits for musical boundaries before transitions. Production output uses a physical-size FIFO surface at 60 FPS, an HD-capped internal shader target, linear upscaling, and derivative-aware line filtering. Transactional startup, first-frame readiness, explicit route facts, ambient degradation, and durable diagnostics make failures visible and recoverable.
 
 ---
 
@@ -2222,7 +2222,7 @@ A system can satisfy the first three and still fail the fourth because the selec
 
 ---
 
-## 28. Auto-only direction and the 26-illusion library
+## 28. Auto-only direction and the 28-illusion library
 
 ### The complete production family list
 
@@ -2230,11 +2230,12 @@ The numeric IDs are part of the Rust-to-WGSL contract. `VisualFamily` supplies t
 
 | IDs | Families |
 | --- | --- |
-| 0–4 | Warp Spiral, Moiré Rings, Infinite Checker, Neon Lattice, Twisted Stripes |
+| 0–4 | Techno Laser Grid, Moiré Rings, Infinite Checker, Neon Lattice, Twisted Stripes |
 | 5–9 | Rotating Snakes, Hyperbolic Tunnel, Chromatic Maze, Vortex Chevron, Glass Orbit |
 | 10–14 | Sine Interference, Impossible Cubes, Polar Fan, Gravity Lens, Ribbon Wormhole |
-| 15–19 | Quantum Weave, Fractal Compass, Liquid Circuit, Alien Heads, Prism Vortex |
+| 15–19 | Quantum Weave, Fractal Compass, Liquid Circuit, Spinning Alien, Prism Vortex |
 | 20–25 | Diamond Drift, Orbital Mesh, Helix Portal, Radial Escalator, Electric Topography, Event Horizon |
+| 26–27 | Kinetic Bars, Bulging Checker |
 
 The production contract is:
 
@@ -2256,12 +2257,12 @@ The result is deterministic for the same session seed and direction key, but it 
 
 1. Fresh playback context contributes phrase kind, stable track identity, and segment index. If it is missing or older than five seconds, inferred musical state supplies the direction.
 2. A timed shuffle counter is mixed into the direction key.
-3. `choose_primary` starts at a seed-derived point in the 26-item array.
+3. `choose_primary` starts at a seed-derived point in the 28-item array.
 4. It searches for a family absent from the last four selections.
 5. The full recent-history deque remains bounded to eight entries.
 6. A new family still respects the eight-second minimum dwell and crossfades instead of cutting abruptly.
 
-All phrase kinds currently draw from all 26 families. Phrase/state still matters because it controls the key, palette, motion/detail/density/brightness budgets, transition duration, modifier preference, and the reason reported by the director.
+All phrase kinds currently draw from all 28 families. Phrase/state still matters because it controls the key, palette, motion/detail/density/brightness budgets, transition duration, modifier preference, and the reason reported by the director.
 
 ### Musically aligned shuffling
 
@@ -2516,7 +2517,7 @@ Pseudo-random choice is derived from a stable session seed, phrase/state key, an
 
 ### 7. How does the director avoid a predictable short loop?
 
-It draws from all 26 families, searches past any of the last four selected families, stores only eight history entries, observes an eight-second minimum dwell, and mixes in a timed shuffle counter.
+It draws from all 28 families, searches past any of the last four selected families, stores only eight history entries, observes an eight-second minimum dwell, and mixes in a timed shuffle counter.
 
 ### 8. Why wait for a musical boundary, and why also have a timeout?
 

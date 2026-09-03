@@ -200,6 +200,82 @@ vec3 ribbonFlowVisual(vec2 uv) {
   return light * (0.52 + u_music.y * 0.36);
 }
 
+vec3 technoGridVisual(vec2 uv) {
+  float turn = u_time * (0.34 + u_visual.x * 0.24);
+  float floorDepth = max(uv.y + 1.08, 0.09);
+  vec2 projected = vec2(uv.x / floorDepth, 1.0 / floorDepth + turn * 0.8);
+  float floorGate = smoothstep(-1.18, -0.72, uv.y) * (1.0 - smoothstep(-0.05, 0.38, uv.y));
+  float columns = pow(max(0.0, 1.0 - abs(sin(projected.x * 3.9))), 12.0);
+  float rows = pow(max(0.0, 1.0 - abs(sin(projected.y * 2.15))), 12.0);
+  float grid = max(columns * 0.72, rows) * floorGate;
+  float sweep = sin(turn * 0.72) * 0.3;
+  float leftBeam = exp(-abs(uv.x + 0.86 - (uv.y + 0.92) * (0.48 + sweep)) * 64.0);
+  float rightBeam = exp(-abs(uv.x - 0.86 + (uv.y + 0.92) * (0.48 - sweep)) * 64.0);
+  float centerBeam = exp(-abs(uv.x - sin(turn) * (uv.y + 1.05) * 0.38) * 82.0);
+  float upperGate = smoothstep(-1.2, -0.78, uv.y) * (1.0 - smoothstep(0.94, 1.42, uv.y));
+  float lasers = ((leftBeam + rightBeam) * 0.58 + centerBeam * 0.42) * upperGate;
+  float frameWidth = 0.58 + sin(turn * 0.35) * 0.08;
+  float frame = exp(-abs(abs(uv.x) - frameWidth) * 72.0) * smoothstep(-0.78, -0.38, uv.y) * (1.0 - smoothstep(0.64, 1.02, uv.y));
+  return paletteField(projected.y * 0.045 + projected.x * 0.025) * grid * 0.48
+    + paletteField(0.24 + uv.y * 0.12 + turn * 0.02) * lasers * 0.44
+    + paletteField(0.68 + turn * 0.01) * frame * 0.5;
+}
+
+vec3 spinningAlienVisual(vec2 uv) {
+  float turn = u_time * (0.24 + u_visual.x * 0.15);
+  float facing = cos(turn);
+  float side = sin(turn);
+  float faceWidth = 0.42 + abs(facing) * 0.58;
+  float tilt = sin(turn * 0.5) * 0.055;
+  mat2 rotation = mat2(cos(tilt), -sin(tilt), sin(tilt), cos(tilt));
+  vec2 tilted = rotation * uv;
+  vec2 face = vec2((tilted.x - side * 0.055) / faceWidth, tilted.y + 0.025);
+  float chinTaper = 1.48 + max(-face.y, 0.0) * 1.35;
+  float headDistance = length(vec2(face.x * chinTaper, (face.y - 0.04) * 1.08));
+  float headMask = 1.0 - smoothstep(0.57, 0.63, headDistance);
+  float headEdge = exp(-abs(headDistance - 0.605) * 46.0);
+  vec2 leftPoint = face - vec2(-0.19 + side * 0.035, 0.1);
+  vec2 rightPoint = face - vec2(0.19 + side * 0.035, 0.1);
+  float leftEye = (1.0 - smoothstep(0.085, 0.13, length(leftPoint * vec2(1.0, 2.75)))) * clamp(0.76 - side * 0.58, 0.1, 1.0);
+  float rightEye = (1.0 - smoothstep(0.085, 0.13, length(rightPoint * vec2(1.0, 2.75)))) * clamp(0.76 + side * 0.58, 0.1, 1.0);
+  float scan = pow(max(0.0, 1.0 - abs(sin(face.y * 19.0 - turn * 3.2))), 15.0) * headMask;
+  float shade = clamp(0.45 + face.x * side * 0.9, 0.08, 1.0) * headMask;
+  float haloRadius = length(uv);
+  float halo = pow(max(0.0, 1.0 - abs(sin(haloRadius * 13.0 - turn * 1.1))), 13.0)
+    * smoothstep(0.58, 0.72, haloRadius) * (1.0 - smoothstep(1.12, 1.45, haloRadius));
+  return paletteField(0.2 + side * 0.13 + face.y * 0.16) * (shade * 0.16 + headEdge * 0.62 + scan * 0.12)
+    + mix(u_colorC, u_colorD, side * 0.5 + 0.5) * (leftEye + rightEye) * 0.72
+    + paletteField(haloRadius * 0.24 - turn * 0.025) * halo * 0.18;
+}
+
+vec3 kineticBarsVisual(vec2 uv) {
+  float turn = u_time * (0.28 + u_visual.x * 0.2);
+  float broadBend = sin(uv.y * 3.2 + turn * 0.62) * 0.19;
+  float fineBend = sin(uv.y * 8.5 - turn * 0.94) * 0.045;
+  float phase = (uv.x + broadBend + fineBend) * (15.0 + u_scene.z * 7.0);
+  float bars = smoothstep(0.42, 0.72, sin(phase) * 0.5 + 0.5);
+  float edge = pow(max(0.0, 1.0 - abs(sin(phase))), 15.0);
+  float counter = pow(max(0.0, 1.0 - abs(sin((uv.x - broadBend * 0.45) * 8.0 + uv.y * 3.0 + turn * 0.36))), 13.0);
+  return paletteField(uv.y * 0.14 + broadBend * 0.32 + turn * 0.008) * (bars * 0.32 + edge * 0.42)
+    + paletteField(0.55 + uv.x * 0.1 - turn * 0.006) * counter * (1.0 - bars) * 0.18;
+}
+
+vec3 bulgingCheckerVisual(vec2 uv) {
+  float turn = u_time * (0.25 + u_visual.x * 0.18);
+  float radius = length(uv);
+  float bulge = 1.0 + exp(-radius * radius * 2.35) * (0.54 + sin(turn * 0.42) * 0.09);
+  vec2 p = uv * bulge;
+  float scale = 4.5 + u_scene.z * 2.6;
+  vec2 cell = fract(p * scale + vec2(turn * 0.07, -turn * 0.055));
+  float tile = abs(step(0.5, cell.x) - step(0.5, cell.y));
+  float edgeX = pow(max(0.0, 1.0 - abs(sin(p.x * scale * 3.14159265 + turn * 0.22))), 14.0);
+  float edgeY = pow(max(0.0, 1.0 - abs(sin(p.y * scale * 3.14159265 - turn * 0.18))), 14.0);
+  float lens = exp(-abs(radius - (0.46 + sin(turn * 0.38) * 0.08)) * 27.0);
+  vec3 low = paletteField(0.62 - radius * 0.12 - turn * 0.006) * 0.08;
+  vec3 high = paletteField(tile * 0.3 + radius * 0.16 + turn * 0.008) * 0.48;
+  return mix(low, high, tile) + paletteField(p.x * 0.09 - p.y * 0.07) * (max(edgeX, edgeY) * 0.24 + lens * 0.32);
+}
+
 vec3 visualFamily(int id, vec2 uv) {
   if (id == 0) return wavesVisual(uv);
   if (id == 1) return bloomVisual(uv);
@@ -209,7 +285,11 @@ vec3 visualFamily(int id, vec2 uv) {
   if (id == 5) return prismBeamsVisual(uv);
   if (id == 6) return starTrailsVisual(uv);
   if (id == 7) return kaleidoscopeVisual(uv);
-  return wavesVisual(uv);
+  if (id == 8) return technoGridVisual(uv);
+  if (id == 9) return spinningAlienVisual(uv);
+  if (id == 10) return kineticBarsVisual(uv);
+  if (id == 11) return bulgingCheckerVisual(uv);
+  return technoGridVisual(uv);
 }
 
 void main() {

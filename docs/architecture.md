@@ -15,7 +15,7 @@ Rekordbox process / supported system output / selected macOS input
                     |                                      |
                     +------------> SceneDirector <---------+
                                          |
-                 one of 26 illusions + optional crossfade + 0–2 modifiers
+                 one of 28 illusions + optional crossfade + 0–2 modifiers
                                          |
                               native wgpu renderer
                                          |
@@ -28,7 +28,7 @@ React control webview ── settings/status only
 
 The audio worker writes only converted mono samples to a fixed-capacity queue. The analysis worker drains current audio, discards excessive backlog, maintains bounded feature history, and replaces one snapshot. The renderer never waits for audio and never queues visual events. Missing audio fades reactivity over 300 ms–2 s and then continues quiet ambient motion.
 
-Renderer time is monotonic seconds since performance start, not frame count. User parameters and musical parameters use asymmetric attack/release envelopes. A dedicated audio-drive envelope converts energy and spectral events into a proportional 0–1 motion/color dial. The `SceneDirector` keeps macro identity stable long enough to read, shuffles across all 26 illusions on a profile-dependent cadence, emits one family except for normalized old/new crossfades, and schedules at most two compatible modifier envelopes.
+Renderer time is monotonic seconds since performance start, not frame count. User parameters and musical parameters use asymmetric attack/release envelopes. A dedicated audio-drive envelope converts energy and spectral events into a proportional motion/color dial. The `SceneDirector` keeps macro identity stable long enough to read, shuffles across all 28 illusions on a profile-dependent cadence, emits one family except for normalized old/new crossfades, and schedules at most two compatible modifier envelopes.
 
 Native JSON-line logs rotate in the platform log directory. A synchronously replaced `last-session.json` records the active report and last risky stage. An unfinished marker becomes `previous-run-report.json` on the next launch. Runtime status and reports separate process detection, capture initialization, packet receipt, non-silent signal, reactive readiness, route, phrase provenance, lifecycle, and renderer state.
 
