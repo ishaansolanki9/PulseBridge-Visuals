@@ -227,57 +227,91 @@ vec3 technoGridVisual(vec2 uv) {
     + paletteField(0.68 + turn * 0.01) * frame * 0.5;
 }
 
+float subjectMusicScale() {
+  float beatBreath = sin(u_pulse.x * TAU) * u_music.y * 0.025;
+  return clamp(
+    0.91 + u_music.x * 0.065 + u_music.y * 0.045 + u_pulse.y * 0.09
+      + u_reactive.x * 0.11 + u_effects.y * 0.055 + beatBreath,
+    0.88,
+    1.28
+  );
+}
+
 vec3 spinningAlienVisual(vec2 uv) {
-  float turn = u_time * (0.24 + u_visual.x * 0.15);
+  vec2 point = uv / subjectMusicScale();
+  float turn = u_time * (0.22 + u_visual.x * 0.12);
   float facing = cos(turn);
   float side = sin(turn);
-  float faceWidth = 0.42 + abs(facing) * 0.58;
-  float tilt = sin(turn * 0.5) * 0.055;
-  mat2 rotation = mat2(cos(tilt), -sin(tilt), sin(tilt), cos(tilt));
-  vec2 tilted = rotation * uv;
-  vec2 face = vec2((tilted.x - side * 0.055) / faceWidth, tilted.y + 0.025);
-  float chinTaper = 1.48 + max(-face.y, 0.0) * 1.35;
-  float headDistance = length(vec2(face.x * chinTaper, (face.y - 0.04) * 1.08));
-  float headMask = 1.0 - smoothstep(0.57, 0.63, headDistance);
-  float headEdge = exp(-abs(headDistance - 0.605) * 46.0);
-  vec2 leftPoint = face - vec2(-0.19 + side * 0.035, 0.1);
-  vec2 rightPoint = face - vec2(0.19 + side * 0.035, 0.1);
-  float leftEye = (1.0 - smoothstep(0.085, 0.13, length(leftPoint * vec2(1.0, 2.75)))) * clamp(0.76 - side * 0.58, 0.1, 1.0);
-  float rightEye = (1.0 - smoothstep(0.085, 0.13, length(rightPoint * vec2(1.0, 2.75)))) * clamp(0.76 + side * 0.58, 0.1, 1.0);
-  float scan = pow(max(0.0, 1.0 - abs(sin(face.y * 19.0 - turn * 3.2))), 15.0) * headMask;
-  float shade = clamp(0.45 + face.x * side * 0.9, 0.08, 1.0) * headMask;
-  float haloRadius = length(uv);
-  float halo = pow(max(0.0, 1.0 - abs(sin(haloRadius * 13.0 - turn * 1.1))), 13.0)
-    * smoothstep(0.58, 0.72, haloRadius) * (1.0 - smoothstep(1.12, 1.45, haloRadius));
-  return paletteField(0.2 + side * 0.13 + face.y * 0.16) * (shade * 0.16 + headEdge * 0.62 + scan * 0.12)
-    + mix(u_colorC, u_colorD, side * 0.5 + 0.5) * (leftEye + rightEye) * 0.72
-    + paletteField(haloRadius * 0.24 - turn * 0.025) * halo * 0.18;
+  float frontGate = smoothstep(-0.18, 0.24, facing);
+  float faceWidth = 0.27 + abs(facing) * 0.73;
+  vec2 face = vec2(point.x / faceWidth, point.y + 0.015);
+  float chinTaper = 1.0 + max(-face.y + 0.03, 0.0) * 1.08;
+  float headDistance = length(vec2(face.x * chinTaper, (face.y - 0.055) * 0.92));
+  float head = 1.0 - smoothstep(0.555, 0.59, headDistance);
+  float rim = exp(-abs(headDistance - 0.573) * 58.0) * head;
+  float surfaceLight = clamp(0.56 + face.y * 0.16 - face.x * side * 0.25 + facing * 0.055, 0.2, 0.88);
+  float backShade = 0.62 + frontGate * 0.38;
+  vec3 skin = paletteField(0.27 + face.y * 0.1 - side * 0.055);
+  vec3 color = skin * head * surfaceLight * backShade * (0.45 + u_styleB.y * 0.1);
+  color += mix(u_colorC, u_colorD, 0.42 + side * 0.18) * rim * 0.2;
+  float featureShift = side * 0.028;
+  vec2 leftPoint = rotate2(face - vec2(-0.205 + featureShift, 0.075), -0.2);
+  vec2 rightPoint = rotate2(face - vec2(0.205 + featureShift, 0.075), 0.2);
+  float leftEyeShape = 1.0 - smoothstep(0.145, 0.175, length(leftPoint * vec2(1.15, 0.78)));
+  float rightEyeShape = 1.0 - smoothstep(0.145, 0.175, length(rightPoint * vec2(1.15, 0.78)));
+  float leftEye = leftEyeShape * clamp(0.78 - side * 0.5, 0.08, 1.0) * frontGate;
+  float rightEye = rightEyeShape * clamp(0.78 + side * 0.5, 0.08, 1.0) * frontGate;
+  float eyes = clamp(leftEye + rightEye, 0.0, 1.0) * head;
+  color = mix(color, vec3(0.006, 0.008, 0.014), eyes * 0.985);
+  float leftGloss = exp(-length(leftPoint - vec2(-0.045, 0.035)) * 86.0) * leftEye;
+  float rightGloss = exp(-length(rightPoint - vec2(-0.045, 0.035)) * 86.0) * rightEye;
+  color += vec3(0.74, 0.88, 1.0) * (leftGloss + rightGloss) * 0.52;
+  vec2 mouthPoint = face - vec2(featureShift * 0.4, -0.285);
+  float mouth = (1.0 - smoothstep(0.055, 0.085, length(mouthPoint * vec2(1.0, 1.75)))) * frontGate * head;
+  color = mix(color, vec3(0.012, 0.015, 0.02), mouth * 0.92);
+  float crownGloss = exp(-length(face - vec2(-0.16, 0.34)) * 8.5) * head * (0.35 + frontGate * 0.65);
+  color += vec3(0.22, 0.34, 0.31) * crownGloss * 0.11;
+  return color;
 }
 
 vec3 spinningSkullVisual(vec2 uv) {
-  float turn = u_time * (0.2 + u_visual.x * 0.12);
+  vec2 point = uv / subjectMusicScale();
+  float turn = u_time * (0.19 + u_visual.x * 0.1);
   float facing = cos(turn);
   float side = sin(turn);
-  vec2 tilted = rotate2(uv, sin(turn * 0.43) * 0.045);
-  float faceWidth = 0.55 + abs(facing) * 0.45;
-  vec2 face = vec2((tilted.x - side * 0.045) / faceWidth, tilted.y + 0.015);
-  float craniumDistance = length(vec2(face.x * 0.88, (face.y - 0.13) * 1.02));
-  float cranium = 1.0 - smoothstep(0.51, 0.56, craniumDistance);
-  float craniumEdge = exp(-abs(craniumDistance - 0.535) * 50.0);
-  float jawWidth = 0.27 - max(-face.y - 0.28, 0.0) * 0.2;
-  float jawDistance = max(abs(face.x) - jawWidth, abs(face.y + 0.31) - 0.18);
-  float jaw = 1.0 - smoothstep(0.0, 0.04, jawDistance);
-  float jawEdge = exp(-abs(jawDistance) * 52.0) * smoothstep(-0.48, -0.08, face.y);
-  vec2 leftPoint = face - vec2(-0.2 + side * 0.035, 0.1);
-  vec2 rightPoint = face - vec2(0.2 + side * 0.035, 0.1);
-  float leftSocket = (1.0 - smoothstep(0.115, 0.16, length(leftPoint * vec2(1.0, 1.42)))) * clamp(0.82 - side * 0.48, 0.18, 1.0);
-  float rightSocket = (1.0 - smoothstep(0.115, 0.16, length(rightPoint * vec2(1.0, 1.42)))) * clamp(0.82 + side * 0.48, 0.18, 1.0);
-  float nose = 1.0 - smoothstep(0.055, 0.095, abs(face.x - side * 0.016) + abs(face.y + 0.075) * 0.58);
-  float mouth = exp(-abs(face.y + 0.285) * 42.0) * jaw * (1.0 - smoothstep(0.14, 0.28, abs(face.x)));
-  float surface = max(cranium, jaw) * (1.0 - clamp((leftSocket + rightSocket) * 0.92 + nose * 0.82 + mouth * 0.72, 0.0, 0.95));
-  vec3 bone = paletteField(0.52 + face.y * 0.11 + side * 0.08);
-  vec3 rim = mix(u_colorC, u_colorD, side * 0.5 + 0.5);
-  return bone * surface * 0.25 + rim * (craniumEdge + jawEdge) * 0.48;
+  float frontGate = smoothstep(-0.2, 0.23, facing);
+  float faceWidth = 0.31 + abs(facing) * 0.69;
+  vec2 face = vec2(point.x / faceWidth, point.y + 0.005);
+  float craniumDistance = length(vec2(face.x * 0.86, (face.y - 0.14) * 1.04));
+  float cranium = 1.0 - smoothstep(0.5, 0.535, craniumDistance);
+  float cheekWidth = 0.34 - max(-face.y - 0.08, 0.0) * 0.22;
+  float cheekDistance = max(abs(face.x) - cheekWidth, abs(face.y + 0.18) - 0.25);
+  float cheek = 1.0 - smoothstep(0.0, 0.035, cheekDistance);
+  float jawWidth = 0.245 - max(-face.y - 0.32, 0.0) * 0.18;
+  float jawDistance = max(abs(face.x) - jawWidth, abs(face.y + 0.36) - 0.16);
+  float jaw = 1.0 - smoothstep(0.0, 0.035, jawDistance);
+  float silhouette = max(cranium, max(cheek, jaw));
+  float rim = max(exp(-abs(craniumDistance - 0.518) * 58.0) * cranium, exp(-abs(min(cheekDistance, jawDistance)) * 58.0) * max(cheek, jaw));
+  vec3 bone = paletteField(0.52 + face.y * 0.085 - side * 0.045);
+  float surfaceLight = clamp(0.52 + face.y * 0.18 - face.x * side * 0.28, 0.18, 0.86);
+  vec3 color = bone * silhouette * surfaceLight * (0.36 + frontGate * 0.16 + u_styleB.y * 0.06);
+  color += mix(u_colorC, u_colorD, 0.5 + side * 0.17) * rim * 0.18;
+  float featureShift = side * 0.026;
+  vec2 leftPoint = face - vec2(-0.205 + featureShift, 0.1);
+  vec2 rightPoint = face - vec2(0.205 + featureShift, 0.1);
+  float leftSocket = (1.0 - smoothstep(0.13, 0.165, length(leftPoint * vec2(1.0, 1.28)))) * clamp(0.8 - side * 0.5, 0.08, 1.0) * frontGate;
+  float rightSocket = (1.0 - smoothstep(0.13, 0.165, length(rightPoint * vec2(1.0, 1.28)))) * clamp(0.8 + side * 0.5, 0.08, 1.0) * frontGate;
+  float nose = (1.0 - smoothstep(0.055, 0.092, abs(face.x - featureShift * 0.45) + abs(face.y + 0.09) * 0.63)) * frontGate;
+  vec2 mouthPoint = face - vec2(featureShift * 0.32, -0.33);
+  float mouthCavity = (1.0 - smoothstep(0.13, 0.165, length(mouthPoint * vec2(1.0, 2.1)))) * frontGate * jaw;
+  float cavities = clamp(leftSocket + rightSocket + nose + mouthCavity, 0.0, 1.0) * silhouette;
+  color = mix(color, vec3(0.006, 0.007, 0.011), cavities * 0.97);
+  float teethGate = mouthCavity * smoothstep(-0.405, -0.34, face.y);
+  float toothBars = step(0.52, fract((face.x - featureShift * 0.32 + 0.2) * 15.0));
+  color += bone * toothBars * teethGate * 0.12;
+  float crownGloss = exp(-length(face - vec2(-0.14, 0.34)) * 8.0) * cranium * (0.3 + frontGate * 0.7);
+  color += vec3(0.38, 0.42, 0.46) * crownGloss * 0.1;
+  return color;
 }
 
 vec3 watchingEyeVisual(vec2 uv) {
@@ -397,9 +431,14 @@ vec3 visualFamily(int id, vec2 uv) {
   return technoGridVisual(uv);
 }
 
+bool isAnchoredSubject(int id) {
+  return id == 9 || id == 12;
+}
+
 void main() {
   vec2 resolution = max(u_resolution, vec2(1.0));
-  vec2 uv = (gl_FragCoord.xy * 2.0 - resolution) / resolution.y;
+  vec2 stableUv = (gl_FragCoord.xy * 2.0 - resolution) / resolution.y;
+  vec2 uv = stableUv;
   float overdrive = clamp(u_effects.w, 0.0, 1.0);
   float hitForce = clamp(u_pulse.y * 0.85 + u_pulse.z * 0.45 + u_effects.y * 0.35, 0.0, 1.5);
   float beatZoom = modifierStrength(1.0);
@@ -432,42 +471,54 @@ void main() {
   uv += vec2(hash21(vec2(jitterTick, 17.0)) - 0.5, hash21(vec2(jitterTick, 43.0)) - 0.5) * overdrive * u_pulse.z * 0.065;
   float wildFold = overdrive * clamp(u_pulse.z * 0.55 + u_pulse.y * 0.25 + u_music.x * 0.12, 0.0, 0.72);
   uv.x = mix(uv.x, abs(uv.x) - 0.28, max(mirrorFold, wildFold));
-  vec3 color = visualFamily(int(round(u_styleA.x)), uv) * u_styleA.z;
-  if (u_styleA.w > 0.001) color += visualFamily(int(round(u_styleA.y)), uv) * u_styleA.w;
-  float vignette = smoothstep(1.48, 0.22, length(uv * vec2(0.68, 1.0)));
+  int primaryId = int(round(u_styleA.x));
+  int secondaryId = int(round(u_styleA.y));
+  vec2 primaryUv = isAnchoredSubject(primaryId) ? stableUv : uv;
+  vec2 secondaryUv = isAnchoredSubject(secondaryId) ? stableUv : uv;
+  vec3 color = visualFamily(primaryId, primaryUv) * u_styleA.z;
+  if (u_styleA.w > 0.001) color += visualFamily(secondaryId, secondaryUv) * u_styleA.w;
+  float anchoredWeight = clamp(
+    (primaryId == 9 || primaryId == 12 ? u_styleA.z : 0.0)
+      + (secondaryId == 9 || secondaryId == 12 ? u_styleA.w : 0.0),
+    0.0,
+    1.0
+  );
+  float freeScene = 1.0 - anchoredWeight;
+  vec2 presentationUv = mix(uv, stableUv, anchoredWeight);
+  float vignette = smoothstep(1.48, 0.22, length(presentationUv * vec2(0.68, 1.0)));
   color *= 0.3 + vignette * 0.82;
   color *= u_visual.w * (0.88 + u_pulse.y * 0.14 + bassHit * 0.16 + energyRise * 0.3) * (1.0 + overdrive * (0.12 + hitForce * 0.38));
-  color += paletteField(u_time * 0.035 * u_effects.z) * u_pulse.z * (0.045 + overdrive * 0.2);
-  color += paletteField(u_time * 0.014) * u_effects.x * (0.018 + overdrive * 0.055);
+  color += paletteField(u_time * 0.035 * u_effects.z) * u_pulse.z * (0.045 + overdrive * 0.2) * freeScene;
+  color += paletteField(u_time * 0.014) * u_effects.x * (0.018 + overdrive * 0.055) * freeScene;
   float sparkle = modifierStrength(3.0);
   float sparkleDrive = max(sparkle, overdrive * (0.18 + u_music.w * 0.82));
   vec2 sparkleCell = floor((uv + u_time * vec2(0.17, -0.11)) * (34.0 + overdrive * 18.0));
   float sparkleSeed = hash21(sparkleCell);
   float sparkleMask = step(0.985 - u_music.w * 0.02 - overdrive * 0.028, sparkleSeed) * pow(max(0.0, sin(u_time * (8.0 + overdrive * 8.0) + sparkleSeed * TAU)), 10.0);
-  color += paletteField(sparkleSeed) * sparkleMask * sparkleDrive * (0.08 + u_music.w * 0.22 + overdrive * 0.18);
+  color += paletteField(sparkleSeed) * sparkleMask * sparkleDrive * (0.08 + u_music.w * 0.22 + overdrive * 0.18) * freeScene;
   float chromatic = modifierStrength(6.0);
   float chromaticDrive = max(chromatic, overdrive * (0.18 + u_pulse.z * 0.7 + u_music.w * 0.3));
   float edge = min(0.28, length(fwidth(color)));
-  color += vec3(edge, edge * 0.18, edge * 0.82) * chromaticDrive * (0.35 + u_music.w * 0.3 + overdrive * 0.5);
+  color += vec3(edge, edge * 0.18, edge * 0.82) * chromaticDrive * (0.35 + u_music.w * 0.3 + overdrive * 0.5) * freeScene;
   float impactBloom = modifierStrength(7.0);
   float impactLevel = clamp(u_effects.y, 0.0, 1.0);
   float impactDrive = max(impactBloom, overdrive * smoothstep(0.28, 0.82, impactLevel));
   float impactFront = exp(-abs(length(uv) - (0.18 + impactLevel * 0.9)) * 18.0);
   float impactEcho = exp(-abs(length(uv) - (0.1 + impactLevel * 0.62)) * 26.0);
-  color += paletteField(length(uv) * 0.25 + u_time * 0.02) * (impactFront + impactEcho * overdrive * 0.72) * impactDrive * (0.28 + overdrive * 0.34);
+  color += paletteField(length(uv) * 0.25 + u_time * 0.02) * (impactFront + impactEcho * overdrive * 0.72) * impactDrive * (0.28 + overdrive * 0.34) * freeScene;
   float responseRadius = length(uv);
   float responseAngle = atan(uv.y, uv.x);
   float bassFront = exp(-abs(responseRadius - (0.12 + fract(u_pulse.x + bassHit * 0.08) * 1.18)) * 20.0);
-  color += paletteField(responseAngle / TAU + responseRadius * 0.42) * bassFront * bassHit * (0.22 + u_styleB.y * 0.32);
+  color += paletteField(responseAngle / TAU + responseRadius * 0.42) * bassFront * bassHit * (0.22 + u_styleB.y * 0.32) * freeScene;
   float midRibs = pow(max(0.0, 1.0 - abs(sin((uv.x + uv.y * 0.74) * (7.0 + u_music.z * 7.0) + u_time * 0.9))), 10.0);
-  color += paletteField(uv.x * 0.21 - uv.y * 0.13 + u_music.z * 0.24) * midRibs * midMotion * (0.08 + u_music.z * 0.13);
+  color += paletteField(uv.x * 0.21 - uv.y * 0.13 + u_music.z * 0.24) * midRibs * midMotion * (0.08 + u_music.z * 0.13) * freeScene;
   float shardCount = 16.0 + floor(u_music.w * 14.0);
   float highRayPhase = responseAngle * shardCount + sin(responseRadius * 7.0 - u_time) * 1.15 + u_time * (2.2 + highHit * 3.4);
   float highRay = pow(max(0.0, 1.0 - abs(sin(highRayPhase))), 16.0) * (1.0 - smoothstep(0.72, 1.9, fwidth(highRayPhase)));
   float highGatePhase = responseRadius * 19.0 - u_time * 1.8 + u_styleB.z * TAU;
   float highGate = 0.28 + pow(max(0.0, 1.0 - abs(sin(highGatePhase))), 11.0) * (1.0 - smoothstep(0.72, 1.9, fwidth(highGatePhase))) * 0.72;
   float highShard = highRay * highGate * smoothstep(0.08, 0.34, responseRadius) * (1.0 - smoothstep(1.1, 1.58, responseRadius));
-  color += paletteField(responseAngle / TAU * 4.0 + responseRadius * 0.3) * highShard * highHit * (0.24 + u_styleB.y * 0.24);
+  color += paletteField(responseAngle / TAU * 4.0 + responseRadius * 0.3) * highShard * highHit * (0.24 + u_styleB.y * 0.24) * freeScene;
   vec3 spectralTint = paletteField(responseAngle / TAU + u_music.y * 0.12 + u_music.z * 0.28 + u_music.w * 0.46);
   float colorReaction = clamp(bassHit * 0.16 + midMotion * 0.12 + highHit * 0.27 + u_pulse.z * 0.18, 0.0, 0.55);
   color = mix(color, color * (0.52 + spectralTint * 1.58), colorReaction);
@@ -476,8 +527,8 @@ void main() {
   float wildRays = pow(max(0.0, sin(angle * 12.0 + u_time * (2.8 + u_music.x * 4.0))), 10.0);
   float wildRings = pow(max(0.0, 1.0 - abs(sin(radius * (10.0 + u_scene.z * 8.0) - u_time * (2.0 + u_music.x * 5.0) - u_pulse.x * TAU))), 9.0);
   float wildGeometry = max(wildRays * 0.65, wildRings) * overdrive * (0.04 + u_music.x * 0.18 + hitForce * 0.18);
-  color += paletteField(angle / TAU * 3.0 + radius * 0.4 + u_time * 0.08 * u_effects.z) * wildGeometry;
-  color = mix(color, color.gbr, overdrive * u_pulse.z * 0.16);
+  color += paletteField(angle / TAU * 3.0 + radius * 0.4 + u_time * 0.08 * u_effects.z) * wildGeometry * freeScene;
+  color = mix(color, color.gbr, overdrive * u_pulse.z * 0.16 * freeScene);
   color = mix(color, vec3(1.0), u_pulse.w * (0.68 + overdrive * 0.16));
   float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
   float luminanceBudget = 0.68 + u_scene.w * 0.36 + overdrive * 0.14;

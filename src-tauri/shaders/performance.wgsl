@@ -300,80 +300,149 @@ fn liquid_circuit(uv: vec2<f32>, time: f32) -> vec3<f32> {
     return paint(dot(floor(p * 6.0), vec2<f32>(0.05, 0.09)) + phase_time(time) * 0.012, max(horizontal, vertical) * 0.52 + node * 0.4);
 }
 
+fn subject_music_scale() -> f32 {
+    let beat_breath = sin(params.pulse.x * TAU) * params.music.y * 0.025;
+    return clamp(
+        0.91
+            + params.music.x * 0.065
+            + params.music.y * 0.045
+            + params.pulse.y * 0.09
+            + params.reactive.x * 0.11
+            + params.effects.y * 0.055
+            + beat_breath,
+        0.88,
+        1.28,
+    );
+}
+
 fn spinning_alien(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time) * 0.34;
+    let point = uv / subject_music_scale();
+    let turn = phase_time(time) * 0.3;
     let facing = cos(turn);
     let side = sin(turn);
-    let face_width = 0.42 + abs(facing) * 0.58;
-    let tilted = rotate2(uv, sin(turn * 0.5) * 0.055);
-    let face = vec2<f32>((tilted.x - side * 0.055) / face_width, tilted.y + 0.025);
-    let chin_taper = 1.48 + max(-face.y, 0.0) * 1.35;
-    let head_distance = length(vec2<f32>(face.x * chin_taper, (face.y - 0.04) * 1.08));
-    let head_mask = 1.0 - smoothstep(0.57, 0.63, head_distance);
-    let head_edge = glow(head_distance - 0.605, 46.0);
+    let front_gate = smoothstep(-0.18, 0.24, facing);
+    let face_width = 0.27 + abs(facing) * 0.73;
+    let face = vec2<f32>(point.x / face_width, point.y + 0.015);
 
-    let left_eye_point = rotate2(face - vec2<f32>(-0.19 + side * 0.035, 0.1), -0.22);
-    let right_eye_point = rotate2(face - vec2<f32>(0.19 + side * 0.035, 0.1), 0.22);
-    let left_eye_distance = length(left_eye_point * vec2<f32>(1.0, 2.75));
-    let right_eye_distance = length(right_eye_point * vec2<f32>(1.0, 2.75));
-    let left_eye = (1.0 - smoothstep(0.085, 0.13, left_eye_distance))
-        * clamp(0.76 - side * 0.58, 0.1, 1.0);
-    let right_eye = (1.0 - smoothstep(0.085, 0.13, right_eye_distance))
-        * clamp(0.76 + side * 0.58, 0.1, 1.0);
-    let eyes = left_eye + right_eye;
-    let scan = ridge(face.y * 19.0 - turn * 3.2, 15.0) * head_mask;
-    let facial_shade = clamp(0.45 + face.x * side * 0.9, 0.08, 1.0) * head_mask;
+    let chin_taper = 1.0 + max(-face.y + 0.03, 0.0) * 1.08;
+    let head_distance = length(vec2<f32>(face.x * chin_taper, (face.y - 0.055) * 0.92));
+    let head = 1.0 - smoothstep(0.555, 0.59, head_distance);
+    let rim = glow(head_distance - 0.573, 58.0) * head;
+    let surface_light = clamp(
+        0.56 + face.y * 0.16 - face.x * side * 0.25 + facing * 0.055,
+        0.2,
+        0.88,
+    );
+    let back_shade = 0.62 + front_gate * 0.38;
+    let skin = palette_field(0.27 + face.y * 0.1 - side * 0.055);
+    var color = skin * head * surface_light * back_shade * (0.45 + params.style_b.y * 0.1);
+    color += mix(params.color_c.rgb, params.color_d.rgb, 0.42 + side * 0.18)
+        * rim
+        * 0.2;
 
-    let halo_radius = length(uv);
-    let halo = ridge(halo_radius * 13.0 - turn * 1.1, 13.0)
-        * smoothstep(0.58, 0.72, halo_radius)
-        * (1.0 - smoothstep(1.12, 1.45, halo_radius));
-    let head_color = palette_field(0.2 + side * 0.13 + face.y * 0.16);
-    let eye_color = mix(params.color_c.rgb, params.color_d.rgb, side * 0.5 + 0.5);
-    return head_color * (facial_shade * 0.16 + head_edge * 0.62 + scan * 0.12)
-        + eye_color * eyes * (0.62 + params.style_b.y * 0.38)
-        + palette_field(halo_radius * 0.24 - turn * 0.025) * halo * 0.18;
+    let feature_shift = side * 0.028;
+    let left_eye_point = rotate2(face - vec2<f32>(-0.205 + feature_shift, 0.075), -0.2);
+    let right_eye_point = rotate2(face - vec2<f32>(0.205 + feature_shift, 0.075), 0.2);
+    let left_eye_shape = 1.0 - smoothstep(
+        0.145,
+        0.175,
+        length(left_eye_point * vec2<f32>(1.15, 0.78)),
+    );
+    let right_eye_shape = 1.0 - smoothstep(
+        0.145,
+        0.175,
+        length(right_eye_point * vec2<f32>(1.15, 0.78)),
+    );
+    let left_eye = left_eye_shape * clamp(0.78 - side * 0.5, 0.08, 1.0) * front_gate;
+    let right_eye = right_eye_shape * clamp(0.78 + side * 0.5, 0.08, 1.0) * front_gate;
+    let eyes = clamp(left_eye + right_eye, 0.0, 1.0) * head;
+    color = mix(color, vec3<f32>(0.006, 0.008, 0.014), eyes * 0.985);
+
+    let left_gloss = exp(-length(left_eye_point - vec2<f32>(-0.045, 0.035)) * 86.0)
+        * left_eye;
+    let right_gloss = exp(-length(right_eye_point - vec2<f32>(-0.045, 0.035)) * 86.0)
+        * right_eye;
+    color += vec3<f32>(0.74, 0.88, 1.0) * (left_gloss + right_gloss) * 0.52;
+
+    let mouth_point = face - vec2<f32>(feature_shift * 0.4, -0.285);
+    let mouth = (1.0 - smoothstep(0.055, 0.085, length(mouth_point * vec2<f32>(1.0, 1.75))))
+        * front_gate
+        * head;
+    color = mix(color, vec3<f32>(0.012, 0.015, 0.02), mouth * 0.92);
+    let crown_gloss = exp(-length(face - vec2<f32>(-0.16, 0.34)) * 8.5)
+        * head
+        * (0.35 + front_gate * 0.65);
+    color += vec3<f32>(0.22, 0.34, 0.31) * crown_gloss * 0.11;
+    return color;
 }
 
 fn spinning_skull(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time) * 0.27;
+    let point = uv / subject_music_scale();
+    let turn = phase_time(time) * 0.25;
     let facing = cos(turn);
     let side = sin(turn);
-    let tilted = rotate2(uv, sin(turn * 0.43) * 0.045);
-    let face_width = 0.55 + abs(facing) * 0.45;
-    let face = vec2<f32>((tilted.x - side * 0.045) / face_width, tilted.y + 0.015);
+    let front_gate = smoothstep(-0.2, 0.23, facing);
+    let face_width = 0.31 + abs(facing) * 0.69;
+    let face = vec2<f32>(point.x / face_width, point.y + 0.005);
 
-    let cranium_distance = length(vec2<f32>(face.x * 0.88, (face.y - 0.13) * 1.02));
-    let cranium = 1.0 - smoothstep(0.51, 0.56, cranium_distance);
-    let cranium_edge = glow(cranium_distance - 0.535, 50.0);
-    let jaw_width = 0.27 - max(-face.y - 0.28, 0.0) * 0.2;
-    let jaw_distance = max(abs(face.x) - jaw_width, abs(face.y + 0.31) - 0.18);
-    let jaw = 1.0 - smoothstep(0.0, 0.04, jaw_distance);
-    let jaw_edge = glow(jaw_distance, 52.0) * smoothstep(-0.48, -0.08, face.y);
-    let silhouette = max(cranium, jaw);
-
-    let left_socket_point = face - vec2<f32>(-0.2 + side * 0.035, 0.1);
-    let right_socket_point = face - vec2<f32>(0.2 + side * 0.035, 0.1);
-    let left_socket = (1.0 - smoothstep(0.115, 0.16, length(left_socket_point * vec2<f32>(1.0, 1.42))))
-        * clamp(0.82 - side * 0.48, 0.18, 1.0);
-    let right_socket = (1.0 - smoothstep(0.115, 0.16, length(right_socket_point * vec2<f32>(1.0, 1.42))))
-        * clamp(0.82 + side * 0.48, 0.18, 1.0);
-    let sockets = clamp(left_socket + right_socket, 0.0, 1.0);
-    let nose = 1.0 - smoothstep(
-        0.055,
-        0.095,
-        abs(face.x - side * 0.016) + abs(face.y + 0.075) * 0.58,
+    let cranium_distance = length(vec2<f32>(face.x * 0.86, (face.y - 0.14) * 1.04));
+    let cranium = 1.0 - smoothstep(0.5, 0.535, cranium_distance);
+    let cheek_width = 0.34 - max(-face.y - 0.08, 0.0) * 0.22;
+    let cheek_distance = max(abs(face.x) - cheek_width, abs(face.y + 0.18) - 0.25);
+    let cheek = 1.0 - smoothstep(0.0, 0.035, cheek_distance);
+    let jaw_width = 0.245 - max(-face.y - 0.32, 0.0) * 0.18;
+    let jaw_distance = max(abs(face.x) - jaw_width, abs(face.y + 0.36) - 0.16);
+    let jaw = 1.0 - smoothstep(0.0, 0.035, jaw_distance);
+    let silhouette = max(cranium, max(cheek, jaw));
+    let rim = max(
+        glow(cranium_distance - 0.518, 58.0) * cranium,
+        glow(min(cheek_distance, jaw_distance), 58.0) * max(cheek, jaw),
     );
-    let mouth = glow(face.y + 0.285, 42.0)
-        * jaw
-        * (1.0 - smoothstep(0.14, 0.28, abs(face.x)));
-    let surface = silhouette
-        * (1.0 - clamp(sockets * 0.92 + nose * 0.82 + mouth * 0.72, 0.0, 0.95));
-    let bone_color = palette_field(0.52 + face.y * 0.11 + side * 0.08);
-    let rim_color = mix(params.color_c.rgb, params.color_d.rgb, side * 0.5 + 0.5);
-    return bone_color * surface * (0.23 + params.style_b.y * 0.08)
-        + rim_color * (cranium_edge + jaw_edge) * 0.48
-        + params.color_d.rgb * (left_socket + right_socket) * 0.035;
+
+    let bone = palette_field(0.52 + face.y * 0.085 - side * 0.045);
+    let surface_light = clamp(0.52 + face.y * 0.18 - face.x * side * 0.28, 0.18, 0.86);
+    var color = bone
+        * silhouette
+        * surface_light
+        * (0.36 + front_gate * 0.16 + params.style_b.y * 0.06);
+    color += mix(params.color_c.rgb, params.color_d.rgb, 0.5 + side * 0.17) * rim * 0.18;
+
+    let feature_shift = side * 0.026;
+    let left_socket_point = face - vec2<f32>(-0.205 + feature_shift, 0.1);
+    let right_socket_point = face - vec2<f32>(0.205 + feature_shift, 0.1);
+    let left_socket = (1.0 - smoothstep(
+        0.13,
+        0.165,
+        length(left_socket_point * vec2<f32>(1.0, 1.28)),
+    )) * clamp(0.8 - side * 0.5, 0.08, 1.0) * front_gate;
+    let right_socket = (1.0 - smoothstep(
+        0.13,
+        0.165,
+        length(right_socket_point * vec2<f32>(1.0, 1.28)),
+    )) * clamp(0.8 + side * 0.5, 0.08, 1.0) * front_gate;
+    let nose = (1.0 - smoothstep(
+        0.055,
+        0.092,
+        abs(face.x - feature_shift * 0.45) + abs(face.y + 0.09) * 0.63,
+    )) * front_gate;
+    let mouth_point = face - vec2<f32>(feature_shift * 0.32, -0.33);
+    let mouth_cavity = (1.0 - smoothstep(
+        0.13,
+        0.165,
+        length(mouth_point * vec2<f32>(1.0, 2.1)),
+    )) * front_gate * jaw;
+    let cavities = clamp(left_socket + right_socket + nose + mouth_cavity, 0.0, 1.0)
+        * silhouette;
+    color = mix(color, vec3<f32>(0.006, 0.007, 0.011), cavities * 0.97);
+
+    let teeth_gate = mouth_cavity * smoothstep(-0.405, -0.34, face.y);
+    let tooth_bars = step(0.52, fract((face.x - feature_shift * 0.32 + 0.2) * 15.0));
+    color += bone * tooth_bars * teeth_gate * 0.12;
+    let crown_gloss = exp(-length(face - vec2<f32>(-0.14, 0.34)) * 8.0)
+        * cranium
+        * (0.3 + front_gate * 0.7);
+    color += vec3<f32>(0.38, 0.42, 0.46) * crown_gloss * 0.1;
+    return color;
 }
 
 fn watching_eye(uv: vec2<f32>, time: f32) -> vec3<f32> {
@@ -622,6 +691,10 @@ fn family_weight(id: u32) -> f32 {
     return clamp(weight, 0.0, 1.0);
 }
 
+fn is_anchored_subject(id: u32) -> bool {
+    return id == 18u || id == 28u;
+}
+
 fn feedback_frame(screen_uv: vec2<f32>, time: f32) -> vec3<f32> {
     let resolution = max(params.resolution_time.xy, vec2<f32>(1.0));
     let aspect = resolution.x / resolution.y;
@@ -682,7 +755,7 @@ fn spectral_signal_ribbon(uv: vec2<f32>, time: f32) -> vec3<f32> {
     ) * main_trace;
     let horizontal_gate = smoothstep(-1.32, -1.08, uv.x)
         * (1.0 - smoothstep(1.08, 1.32, uv.x));
-    let signal_scene = clamp(family_weight(18u) + family_weight(29u) * 0.35, 0.0, 1.0);
+    let signal_scene = clamp(family_weight(29u) * 0.35, 0.0, 1.0);
     let strength = (0.012 + drive * 0.035 + trails * 0.04)
         * (0.45 + params.music.z * 0.32 + params.music.w * 0.23);
     return palette_field(uv.x * 0.14 + phase * 0.012)
@@ -696,7 +769,8 @@ fn spectral_signal_ribbon(uv: vec2<f32>, time: f32) -> vec3<f32> {
 fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let resolution = max(params.resolution_time.xy, vec2<f32>(1.0));
     let screen_uv = position.xy / resolution;
-    var uv = (position.xy * 2.0 - resolution) / resolution.y;
+    let stable_uv = (position.xy * 2.0 - resolution) / resolution.y;
+    var uv = stable_uv;
     let time = params.resolution_time.z;
     let drive = clamp(params.style_b.y, 0.0, 1.0);
     let beat_zoom = modifier_strength(1u);
@@ -747,19 +821,35 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
 
     let primary_id = u32(round(params.style_a.x));
     let secondary_id = u32(round(params.style_a.y));
-    var color = visual_family(primary_id, uv, time) * params.style_a.z;
+    var primary_uv = uv;
+    if is_anchored_subject(primary_id) {
+        primary_uv = stable_uv;
+    }
+    var secondary_uv = uv;
+    if is_anchored_subject(secondary_id) {
+        secondary_uv = stable_uv;
+    }
+    var color = visual_family(primary_id, primary_uv, time) * params.style_a.z;
     if params.style_a.w > 0.001 {
-        color += visual_family(secondary_id, uv, time) * params.style_a.w;
+        color += visual_family(secondary_id, secondary_uv, time) * params.style_a.w;
     }
 
-    let vignette = 1.0 - smoothstep(0.25, 1.55, length(uv * vec2<f32>(0.7, 1.0)));
+    let anchored_weight = clamp(family_weight(18u) + family_weight(28u), 0.0, 1.0);
+    let free_scene = 1.0 - anchored_weight;
+    let presentation_uv = mix(uv, stable_uv, anchored_weight);
+    let vignette = 1.0 - smoothstep(
+        0.25,
+        1.55,
+        length(presentation_uv * vec2<f32>(0.7, 1.0)),
+    );
     color *= (0.32 + vignette * 0.78)
         * params.visual.w
         * (0.86 + params.pulse.y * 0.17 + bass_hit * 0.16 + energy_rise * 0.3);
     color += palette_field(length(uv) * 0.2 + time * 0.01)
         * params.pulse.z
         * drive
-        * 0.16;
+        * 0.16
+        * free_scene;
 
     let response_radius = length(uv);
     let response_angle = atan2(uv.y, uv.x);
@@ -770,7 +860,8 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     color += palette_field(response_angle / TAU + response_radius * 0.42)
         * bass_front
         * bass_hit
-        * (0.12 + drive * 0.18);
+        * (0.12 + drive * 0.18)
+        * free_scene;
     let mid_ribs = ridge(
         (uv.x + uv.y * 0.74) * (5.0 + params.music.z * 4.0)
             + phase_time(time) * 0.9,
@@ -779,7 +870,8 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     color += palette_field(uv.x * 0.21 - uv.y * 0.13 + params.music.z * 0.24)
         * mid_ribs
         * mid_motion
-        * (0.025 + params.music.z * 0.06);
+        * (0.025 + params.music.z * 0.06)
+        * free_scene;
     let shard_count = 8.0 + floor(params.music.w * 8.0);
     let high_ray = ridge(
         response_angle * shard_count
@@ -799,7 +891,8 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     color += palette_field(response_angle / TAU * 4.0 + response_radius * 0.3)
         * high_shard
         * high_hit
-        * (0.07 + drive * 0.12);
+        * (0.07 + drive * 0.12)
+        * free_scene;
     let spectral_tint = palette_field(
         response_angle / TAU
             + params.music.y * 0.12
@@ -822,25 +915,30 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         let seed = hash21(cell);
         let mask = step(0.988 - params.music.w * 0.025, seed)
             * ridge(time * 8.0 + seed * TAU, 12.0);
-        color += palette_field(seed) * mask * sparkle * drive * 0.32;
+        color += palette_field(seed) * mask * sparkle * drive * 0.32 * free_scene;
     }
 
     color += spectral_signal_ribbon(uv, time);
 
     let chromatic = modifier_strength(6u);
-    color = mix(color, color.gbr, chromatic * drive * params.pulse.z * 0.18);
+    color = mix(
+        color,
+        color.gbr,
+        chromatic * drive * params.pulse.z * 0.18 * free_scene,
+    );
     let impact_bloom = modifier_strength(7u);
     let impact_level = clamp(params.effects.y, 0.0, 1.0);
     let impact_ring = glow(length(uv) - (0.16 + impact_level * 0.92), 24.0);
     color += palette_field(length(uv) * 0.3 + time * 0.04)
         * impact_ring
         * max(impact_bloom, impact_level * drive)
-        * 0.44;
+        * 0.44
+        * free_scene;
 
     let previous = feedback_frame(screen_uv, time);
     let feedback_decay = 0.82 + params.feedback.x * 0.13;
     let persistent_light = max(color, previous * feedback_decay);
-    color = mix(color, persistent_light, params.feedback.x);
+    color = mix(color, persistent_light, params.feedback.x * free_scene);
 
     color = mix(color, vec3<f32>(1.0), params.pulse.w * (0.54 + drive * 0.16));
     let luminance = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
