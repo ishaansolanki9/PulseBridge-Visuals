@@ -15,7 +15,7 @@ Rekordbox process / supported system output / selected macOS input
                     |                                      |
                     +------------> SceneDirector <---------+
                                          |
-                 one of 32 illusions + optional crossfade + 0–2 modifiers
+              one of 12 abstract presets + optional crossfade + 0–2 accents
                                          |
                               native wgpu renderer
                                          |
@@ -28,9 +28,9 @@ React control webview ── settings/status only
 
 The audio worker writes only converted mono samples to a fixed-capacity queue. The analysis worker drains current audio, discards excessive backlog, maintains bounded feature history, and replaces one snapshot. The renderer never waits for audio and never queues visual events. Missing audio fades reactivity over 300 ms–2 s and then continues quiet ambient motion.
 
-Renderer time is monotonic seconds since performance start, not frame count. User parameters and musical parameters use asymmetric attack/release envelopes. A dedicated audio-drive envelope converts energy and spectral events into a proportional motion/color dial. The `SceneDirector` keeps macro identity stable long enough to read, prioritizes a curated shape-first subset of the 32-family library, periodically samples the full library, emits one family except for normalized old/new crossfades, and schedules at most two compatible modifier envelopes.
+Renderer time is monotonic seconds since performance start, not frame count. User parameters and musical parameters use asymmetric attack/release envelopes. A dedicated audio-drive envelope converts energy and spectral events into a proportional motion/color dial. The `SceneDirector` keeps each wave, field, fractal, or geometric structure stable long enough to read, emits one preset except for normalized old/new crossfades, and schedules at most two compatible accent envelopes.
 
-Odd-numbered automatic shuffles are reserved for a four-scene featured rotation: Spinning Alien, Spinning Skull, Watching Eye, and Chromatic Splotch Wave. The first automatic shuffle is always Spinning Alien. The shuffle's existing musical trigger and bounded quiet fallback therefore guarantee that the alien appears early even when no phrase metadata is available.
+Odd-numbered automatic shuffles are reserved for the four-preset core: Color-Splotch Wave, Multi-Layer Wave Field, Fractal Bloom, and Recursive Tunnel. The first automatic shuffle always restores the signature splotch wave. The existing musical trigger and bounded quiet fallback surface all four within four minutes even when phrase metadata is unavailable.
 
 The production renderer owns two sampleable `wgpu` render targets. It renders into one while sampling the other, presents the completed target through the existing linear blitter, then swaps their roles. This ping-pong loop provides bounded previous-frame feedback with no CPU frame copies and no additional visual-event queue. Both targets are cleared before first use and recreated together when the render resolution changes.
 
@@ -38,4 +38,4 @@ Native JSON-line logs rotate in the platform log directory. A synchronously repl
 
 `run_connection_diagnostic` is independent of the show session. Audio-only uses the real selected backend with bounded waits and no PCM persistence. Renderer-only and Safe renderer validate an adapter/device/shader/pipeline without fullscreen. Full startup also creates a temporary hidden native surface, presents a frame, signals stop, bounds the join, and closes it.
 
-The performance surface is a raw Tauri window passed directly to `wgpu`; it is not a webview. Native output is paced at 45 FPS and display sizes above 2560×1440 use a proportional performance surface that the compositor scales to the physical monitor. The controller destroys its WebGL preview while output is live. The browser-only performance route is a text-free ambient appearance preview and does not participate in production capture or rendering.
+The performance surface is a raw Tauri window passed directly to `wgpu`; it is not a webview. Native output is paced at 60 FPS. The swapchain always matches the physical window, while shader work above an HD pixel budget runs in a proportional internal target and is linearly upscaled. The controller destroys its WebGL preview while output is live. The browser-only performance route is a text-free ambient appearance preview and does not participate in production capture or rendering.

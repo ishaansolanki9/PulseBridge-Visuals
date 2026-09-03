@@ -1090,14 +1090,18 @@ FFT features change every 20 ms. If raw values chose whole scenes, visual identi
 
 | ID | Rust name | Visual idea |
 | ---: | --- | --- |
-| 0 | Wave Field | Layered moving waves |
-| 1 | Bloom | Radial flower/drop expansion |
-| 2 | Pulse Geometry | Rings and beat geometry |
-| 3 | Warp Tunnel | Radial depth/tunnel motion |
-| 4 | Fluid Ribbons | Flowing ribbons |
-| 5 | Prism Beams | Directed light beams |
-| 6 | Star Trails | Moving points and trails |
-| 7 | Kaleidoscope | Folded radial symmetry |
+| 0 | Color Splotch Wave | Continuous wave with embedded accents |
+| 1 | Multi-Layer Wave Field | Three to eight coordinated waves |
+| 2 | Fractal Bloom | Nested readable petal levels |
+| 3 | Recursive Tunnel | Nested circle/diamond depth frames |
+| 4 | Ribbon Flow | Broad spline-like ribbon |
+| 5 | Branching Tree | Symmetric recursive branches |
+| 6 | Contour Field | Smooth topographic field |
+| 7 | Lattice Flow | Music-bent regular grid |
+| 8 | Helix Spiral | Two strands with restrained rungs |
+| 9 | Ring Pulse System | Hierarchical and emitted rings |
+| 10 | Arc Fan | Curved rays from one origin |
+| 11 | Fractal Wave Hybrid | Recursive wave harmonics |
 
 These IDs must match Rust, WGSL, and the GLSL preview.
 
@@ -1105,23 +1109,23 @@ These IDs must match Rust, WGSL, and the GLSL preview.
 
 | UI style | Base family |
 | --- | --- |
-| Fluid | Fluid Ribbons |
-| Waves | Wave Field |
-| Pulse | Pulse Geometry |
-| Tunnel | Warp Tunnel |
-| Burst | Bloom |
+| Fluid | Color Splotch Wave |
+| Waves | Multi-Layer Wave Field |
+| Pulse | Ring Pulse System |
+| Tunnel | Recursive Tunnel |
+| Burst | Fractal Bloom |
 
 Auto uses phrase/state direction. Manual mode still receives live feature animation, but it fixes the family. The current director clears optional modifiers in manual and Chill modes, reducing visual surprise.
 
-### Phrase candidates
+### Phrase direction
 
-Each phrase kind has a small allowed family set. For example, Up favors Warp Tunnel, Prism Beams, or Fluid Ribbons; Chorus favors Pulse Geometry, Kaleidoscope, or Bloom.
+All phrase kinds can select from the 12-preset library. The recurring core rotation guarantees Color Splotch Wave, Multi-Layer Wave Field, Fractal Bloom, and Recursive Tunnel, while phrase type controls palette, motion, density, brightness, transition speed, and accent preference.
 
 Selection combines a session seed and direction key. Given the same seed/key/history it is deterministic, while a new session seed permits variation. The recent history is capped at eight and prevents selecting the same primary for a third consecutive phrase when alternatives exist.
 
 ### Dwell and crossfade
 
-A base normally remains for at least 12 seconds. A transition renders the outgoing and incoming bases together with weights whose sum is normalized to one. Smoothstep easing avoids a linear-looking hard handoff.
+A base normally remains for at least 8 seconds. A transition renders the outgoing and incoming bases together with weights whose sum is normalized to one. Smoothstep easing avoids a linear-looking hard handoff.
 
 Transition durations depend on phrase and intensity. Fast, energetic changes such as Chorus/Fill can be around 0.8 seconds at Balanced; quiet Intro/Down/Outro transitions can be around 2.4 seconds. Chill lengthens and Wild shortens these durations.
 
@@ -1133,12 +1137,8 @@ Exactly one base is active outside a transition. “At most two bases” means t
 | ---: | --- | --- |
 | 0 | Palette Drift | Moves cyclic palette coordinates |
 | 1 | Beat Zoom | Increases beat-driven camera/UV zoom |
-| 2 | Bass Warp | Bass-driven coordinate deformation |
-| 3 | High Sparkle | High-frequency sparkle points |
-| 4 | Echo Trails | Adds a low-brightness trail band |
-| 5 | Mirror Fold | Mirrors/folds coordinates |
-| 6 | Chromatic Split | Adds colored edge energy |
-| 7 | Impact Bloom | Adds a brief radial impact front |
+| 4 | Echo Trails | Reinforces compatible flowing paths |
+| 7 | Impact Bloom | Briefly strengthens the current structure |
 
 Modifiers rotate on a roughly 16-second key. Normal modifiers use attack/hold/release envelopes; Impact Bloom attacks in 40 ms, holds about 160 ms, and releases over 500 ms. At most two are active. Compatibility rules prevent redundant or visually problematic combinations.
 
@@ -1231,10 +1231,10 @@ This is both a product decision and a safety engineering decision.
 The vertex shader emits a full-screen triangle using only `vertex_index`. The fragment shader:
 
 1. converts pixel position to aspect-correct coordinates;
-2. applies global modifiers such as Beat Zoom, Bass Warp, and Mirror Fold;
-3. evaluates the primary base and optional crossfade base;
-4. applies vignette, brightness, onset/sub accents;
-5. adds compatible sparkle/trail/chromatic/impact modifiers;
+2. applies only a bounded beat/bass scale shared by the visual language;
+3. evaluates the primary preset and optional crossfade preset;
+4. lets each preset map bass, mids, highs, kicks, and energy rises to its own geometry;
+5. applies vignette, restrained compatible feedback, and impact gain;
 6. optionally mixes toward white for the bounded flash;
 7. caps luminance;
 8. applies saturation, tone mapping, and gamma-like shaping;
@@ -2146,23 +2146,23 @@ Some facts in the original guide were also already behind the implementation. Th
 | --- | --- |
 | Windows prefers native Rekordbox process loopback | Normal Windows operation discovers Rekordbox but captures the stable default Windows output. Native process loopback is an isolated developer opt-in. |
 | macOS only exposes a Rekordbox process tap | macOS exposes Rekordbox-only audio, all outgoing system audio, and detected microphone/line-in inputs. |
-| Eight base visual families | Auto can select any of 26 distinct analytic illusion families. |
+| Eight base visual families | Auto can select 12 distinct abstract line, wave, field, grid, and fractal presets. |
 | Manual visual families are selectable | Auto is the only product direction mode. Old style variants remain in serialized types for compatibility, but Rust sanitization forces Auto. |
 | Scene minimum dwell is 12 seconds | The current minimum dwell is 8 seconds, with additional timed Auto shuffles aligned to musical boundaries. |
 | Audio mainly changes generic speed and intensity | A proportional continuous drive plus four transient lanes independently change geometry, depth, density, and color. |
 | High-resolution output uses a smaller presentation surface | The presentation surface always matches the physical window; only the internal shader target is capped to an HD pixel budget and then linearly upscaled. |
-| 44 Rust tests | The current suite has 52 passing Rust tests. |
+| 44 Rust tests | The current suite has 57 passing Rust tests. |
 | Windows transfer guide, implementation briefs, and transfer-zip script are part of the repository | Installation now lives in `README.md`; the temporary briefs and transfer archive script were removed. `scripts/build-windows.ps1` remains. |
 
-One documentation caveat matters when studying: `docs/architecture.md` still contains an older 45 FPS/2560×1440 renderer description. The current renderer source, `README.md`, and `docs/visual-language.md` describe the implemented 60 FPS/full-surface/HD-internal path. In an interview, explain the current source behavior and openly identify the documentation drift if asked.
+The architecture, visual-language, and development documents now agree with the 60 FPS/full-surface/HD-internal renderer and the 12-preset abstract visual language.
 
 ### Updated one-sentence architecture
 
-PulseBridge is a Tauri desktop app whose React controller configures a native Rust pipeline that safely captures live audio, reduces it to bounded musical state, directs one of 28 Auto-selected analytic illusions, and renders a tear-free full-screen result through a 60 FPS `wgpu` surface.
+PulseBridge is a Tauri desktop app whose React controller configures a native Rust pipeline that safely captures live audio, reduces it to bounded musical state, directs one of 12 Auto-selected abstract presets, and renders a tear-free full-screen result through a 60 FPS `wgpu` surface.
 
 ### Updated 90-second interview pitch
 
-> PulseBridge turns Rekordbox-related audio into native second-screen visuals. The React webview is only a controller and ambient preview; the real-time path is Rust. On Windows, the normal Rekordbox-aware source discovers the process but deliberately uses stable output loopback because process-specific activation caused native heap corruption on affected hardware. On macOS 14.2+, users can choose a private Rekordbox process tap, a global system-audio tap, or a microphone/line-in input. Samples are normalized to mono 48 kHz and sent through a bounded overwriting queue to FFT, rhythm, musical-state, and phrase-inference workers. The renderer derives a continuous audio-drive envelope and separate bass, mid, high, and energy-rise events. A deterministic-but-shuffled director selects among 28 illusions, avoids recent repetition, and waits for musical boundaries before transitions. Production output uses a physical-size FIFO surface at 60 FPS, an HD-capped internal shader target, linear upscaling, and derivative-aware line filtering. Transactional startup, first-frame readiness, explicit route facts, ambient degradation, and durable diagnostics make failures visible and recoverable.
+> PulseBridge turns Rekordbox-related audio into native second-screen visuals. The React webview is only a controller and ambient preview; the real-time path is Rust. On Windows, the normal Rekordbox-aware source discovers the process but deliberately uses stable output loopback because process-specific activation caused native heap corruption on affected hardware. On macOS 14.2+, users can choose a private Rekordbox process tap, a global system-audio tap, or a microphone/line-in input. Samples are normalized to mono 48 kHz and sent through a bounded overwriting queue to FFT, rhythm, musical-state, and phrase-inference workers. The renderer derives a continuous audio-drive envelope and separate bass, mid, high, and energy-rise events. A deterministic-but-shuffled director selects among 12 abstract presets, avoids recent repetition, guarantees a four-preset core, and waits for musical boundaries before transitions. Production output uses a physical-size FIFO surface at 60 FPS, an HD-capped internal shader target, linear upscaling, and derivative-aware line filtering. Transactional startup, first-frame readiness, explicit route facts, ambient degradation, and durable diagnostics make failures visible and recoverable.
 
 ---
 
@@ -2222,7 +2222,7 @@ A system can satisfy the first three and still fail the fourth because the selec
 
 ---
 
-## 28. Auto-only direction and the 28-illusion library
+## 28. Auto-only direction and the 12-preset library
 
 ### The complete production family list
 
@@ -2230,12 +2230,9 @@ The numeric IDs are part of the Rust-to-WGSL contract. `VisualFamily` supplies t
 
 | IDs | Families |
 | --- | --- |
-| 0–4 | Techno Laser Grid, Moiré Rings, Infinite Checker, Neon Lattice, Twisted Stripes |
-| 5–9 | Rotating Snakes, Hyperbolic Tunnel, Chromatic Maze, Vortex Chevron, Glass Orbit |
-| 10–14 | Sine Interference, Impossible Cubes, Polar Fan, Gravity Lens, Ribbon Wormhole |
-| 15–19 | Quantum Weave, Fractal Compass, Liquid Circuit, Spinning Alien, Prism Vortex |
-| 20–25 | Diamond Drift, Orbital Mesh, Helix Portal, Radial Escalator, Electric Topography, Event Horizon |
-| 26–27 | Kinetic Bars, Bulging Checker |
+| 0–3 | Color Splotch Wave, Multi-Layer Wave Field, Fractal Bloom, Recursive Tunnel |
+| 4–7 | Ribbon Flow, Branching Tree, Contour Field, Lattice Flow |
+| 8–11 | Helix Spiral, Ring Pulse System, Arc Fan, Fractal Wave Hybrid |
 
 The production contract is:
 
@@ -2257,12 +2254,12 @@ The result is deterministic for the same session seed and direction key, but it 
 
 1. Fresh playback context contributes phrase kind, stable track identity, and segment index. If it is missing or older than five seconds, inferred musical state supplies the direction.
 2. A timed shuffle counter is mixed into the direction key.
-3. `choose_primary` starts at a seed-derived point in the 28-item array.
+3. Odd automatic shuffles select the next member of the four-preset core; other shuffles start at a seed-derived point in the 12-item array.
 4. It searches for a family absent from the last four selections.
 5. The full recent-history deque remains bounded to eight entries.
 6. A new family still respects the eight-second minimum dwell and crossfades instead of cutting abruptly.
 
-All phrase kinds currently draw from all 28 families. Phrase/state still matters because it controls the key, palette, motion/detail/density/brightness budgets, transition duration, modifier preference, and the reason reported by the director.
+All phrase kinds can draw from the complete library. Phrase/state still matters because it controls the key, palette, motion/detail/density/brightness budgets, transition duration, modifier preference, and the reason reported by the director.
 
 ### Musically aligned shuffling
 
@@ -2288,7 +2285,7 @@ If no boundary occurs, the `1.6 × interval` deadline forces progress. This is t
 
 Chill clears normal modifiers. Balanced rotates them on a 16-second cadence; Wild uses seven seconds. A due modifier waits for impact above 0.42, onset above 0.54, or a beat above 0.58 while energy exceeds 0.48. Its bounded fallback is `1.5 ×` the cadence. A separate short Impact Bloom may still be added when impact crosses the profile threshold, subject to compatibility and the two-slot cap.
 
-The eight modifier IDs remain Palette Drift, Beat Zoom, Bass Warp, High Sparkle, Echo Trails, Mirror Fold, Chromatic Split, and Impact Bloom.
+The retained modifier IDs are Palette Drift (0), Beat Zoom (1), Echo Trails (4), and Impact Bloom (7). The gaps preserve the established Rust-to-shader numeric contract. Geometry-destroying bass warp, sparkle, mirror fold, and chromatic split variants were removed. Echo Trails is compatible only with Recursive Tunnel, Ribbon Flow, Contour Field, and Helix Spiral.
 
 ---
 
@@ -2517,7 +2514,7 @@ Pseudo-random choice is derived from a stable session seed, phrase/state key, an
 
 ### 7. How does the director avoid a predictable short loop?
 
-It draws from all 28 families, searches past any of the last four selected families, stores only eight history entries, observes an eight-second minimum dwell, and mixes in a timed shuffle counter.
+It draws from all 12 presets, gives every odd shuffle to the four-preset core, searches past any of the last four selected families for other shuffles, stores only eight history entries, observes an eight-second minimum dwell, and mixes in a timed shuffle counter.
 
 ### 8. Why wait for a musical boundary, and why also have a timeout?
 
@@ -2565,7 +2562,7 @@ It avoids competing for GPU time with Rekordbox and the native renderer. The pre
 
 ### 19. Which tests specifically defend the new behavior?
 
-Tests verify 26 unique Auto families, music-boundary shuffle plus bounded fallback, proportional drive, distinct frequency-event lanes, no events without live reactivity, intensity ceilings, valid WGSL, and HD internal sizing for both HD and 4K surfaces.
+Tests verify 12 unique Auto presets, the four-preset core cadence, music-boundary shuffle plus bounded fallback, proportional drive, distinct frequency-event lanes, no events without live reactivity, intensity ceilings, valid WGSL, and HD internal sizing for both HD and 4K surfaces.
 
 ### 20. What remains unverified by unit tests?
 
@@ -2575,9 +2572,9 @@ Real Rekordbox routing, permissions, driver behavior, async Windows activation, 
 
 A strong answer is: repair and validate Windows process capture on an affected-device matrix; add deterministic synthetic end-to-end audio fixtures; measure audio-to-photon latency; test unusual DPI/aspect/refresh-rate displays; keep architecture docs synchronized; and pursue signed/notarized releases.
 
-### 22. How would you explain the documentation mismatch professionally?
+### 22. How do you keep visual documentation reliable?
 
-> The executable source, tests, README, and visual-language document agree on the current 60 FPS full-surface path. One concise architecture page still describes the earlier 45 FPS scaled-surface design. I would treat source and tests as authoritative, document the discrepancy, and update that page in a focused documentation change.
+> Treat the Rust enum, WGSL dispatch, tests, controller copy, and visual-language document as one contract. A preset change is complete only when those surfaces agree on IDs, cadence, behavior, and verification.
 
 ---
 
@@ -2594,7 +2591,7 @@ A strong answer is: repair and validate Windows process capture on an affected-d
 - Windows process loopback is developer-only via `PULSEBRIDGE_EXPERIMENTAL_PROCESS_LOOPBACK=1` and requires build 20348+.
 - macOS 14.2+ supports Rekordbox-only tap, all-system-output tap, and selected microphone/line-in inputs.
 - Auto is the only direction mode; old manual variants remain only for serialized compatibility.
-- 26 distinct analytic illusion families; history capacity eight; most recent four avoided.
+- 12 distinct abstract presets; four-preset recurring core; history capacity eight; most recent four avoided on shuffled choices.
 - Eight-second minimum scene dwell.
 - Auto shuffle cadence: Chill 18 s, Balanced 14 s, Wild 10 s; musical boundary preferred, `1.6×` fallback.
 - Modifier cadence: Balanced 16 s, Wild 7 s; musical trigger preferred, `1.5×` fallback; Chill clears normal modifiers.
@@ -2606,7 +2603,7 @@ A strong answer is: repair and validate Windows process capture on an affected-d
 - Physical surface always matches the window; internal shader work is capped at 2,073,600 pixels and linearly upscaled.
 - Procedural ridge/glow detail uses `fwidth` to fade unresolved screen-space frequency.
 - Browser preview is ambient and non-reactive, and it is destroyed while native output runs.
-- Current Rust test result: 52 passed, 0 failed.
+- Current Rust test result: 57 passed, 0 failed.
 
 ### Current thesis
 

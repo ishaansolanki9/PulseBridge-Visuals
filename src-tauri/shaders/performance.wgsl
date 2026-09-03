@@ -58,7 +58,7 @@ fn field_fbm(input_point: vec2<f32>) -> f32 {
     var point = input_point;
     var value = 0.0;
     var amplitude = 0.5;
-    for (var octave = 0; octave < 4; octave += 1) {
+    for (var octave = 0; octave < 3; octave += 1) {
         value += field_noise(point) * amplitude;
         point = mat2x2<f32>(1.62, 1.18, -1.18, 1.62) * point + 0.17;
         amplitude *= 0.5;
@@ -84,736 +84,336 @@ fn modifier_strength(kind: u32) -> f32 {
 }
 
 fn palette_field(value: f32) -> vec3<f32> {
-    let drive = params.style_b.y;
     let palette_drift = modifier_strength(0u);
-    let speed = (0.02 + drive * 0.34 + palette_drift * 0.12) * params.effects.z;
-    let hit_shift = params.reactive.x * 0.07
-        + params.reactive.z * 0.19
-        + params.pulse.z * (0.06 + drive * 0.08);
-    let scaled = fract(
-        value + params.resolution_time.z * speed + params.pulse.x * drive * 0.04 + hit_shift,
-    ) * 4.0;
-    let local = smoothstep(0.0, 1.0, fract(scaled));
-    let segment = u32(floor(scaled));
-    switch segment {
-        case 0u: { return mix(params.color_a.rgb, params.color_b.rgb, local); }
-        case 1u: { return mix(params.color_b.rgb, params.color_c.rgb, local); }
-        case 2u: { return mix(params.color_c.rgb, params.color_d.rgb, local); }
-        default: { return mix(params.color_d.rgb, params.color_a.rgb, local); }
-    }
+    let drift = params.resolution_time.z
+        * (0.004 + params.effects.z * (0.006 + palette_drift * 0.02));
+    let amount = 0.5 + 0.5 * sin((value + drift) * TAU);
+    return mix(params.color_b.rgb, params.color_c.rgb, amount);
+}
+
+fn accent_field(value: f32) -> vec3<f32> {
+    let amount = 0.5 + 0.5 * sin(value * TAU + params.resolution_time.z * 0.018);
+    return mix(params.color_c.rgb, params.color_d.rgb, amount);
+}
+
+fn phase_time(time: f32, rate: f32) -> f32 {
+    let motion = clamp(params.visual.x, 0.2, 1.8);
+    return time * rate * (0.55 + motion * 0.45);
+}
+
+fn line_glow(distance: f32, width: f32) -> f32 {
+    let antialias = max(fwidth(distance) * 1.4, 0.0015);
+    return 1.0 - smoothstep(width, width + antialias, abs(distance));
+}
+
+fn soft_line(distance: f32, sharpness: f32) -> f32 {
+    return exp(-abs(distance) * sharpness);
 }
 
 fn ridge(value: f32, sharpness: f32) -> f32 {
     let raw = pow(max(0.0, 1.0 - abs(sin(value))), sharpness);
-    let detail_visibility = 1.0 - smoothstep(0.72, 1.9, fwidth(value));
-    return raw * detail_visibility;
+    return raw * (1.0 - smoothstep(0.72, 1.9, fwidth(value)));
 }
 
-fn glow(value: f32, sharpness: f32) -> f32 {
-    let raw = exp(-abs(value) * sharpness);
-    let detail_visibility = 1.0 - smoothstep(0.7, 2.1, fwidth(value) * sharpness);
-    return raw * detail_visibility;
+fn sd_segment(point: vec2<f32>, start: vec2<f32>, end: vec2<f32>) -> f32 {
+    let to_point = point - start;
+    let segment = end - start;
+    let position = clamp(dot(to_point, segment) / max(dot(segment, segment), 0.0001), 0.0, 1.0);
+    return length(to_point - segment * position);
 }
 
-fn paint(field: f32, light: f32) -> vec3<f32> {
-    return palette_field(field) * (0.045 + max(light, 0.0));
+fn soft_spot(point: vec2<f32>, center: vec2<f32>, radius: f32) -> f32 {
+    let scaled = (point - center) / vec2<f32>(radius * 1.35, radius);
+    return exp(-dot(scaled, scaled) * 2.6);
 }
 
-fn phase_time(time: f32) -> f32 {
-    let drive = params.style_b.y;
-    let musical_nudge = params.pulse.y * (0.12 + drive * 0.42)
-        + params.reactive.x * 0.24
-        + params.reactive.z * 0.11;
-    return time * (0.08 + drive * 1.92) * (0.5 + params.visual.x * 0.5)
-        + musical_nudge;
+fn structure_opening() -> f32 {
+    return 1.0
+        + params.music.y * 0.16
+        + params.reactive.x * 0.1
+        + params.reactive.w * 0.12
+        + params.pulse.y * 0.045
+        + modifier_strength(1u) * params.pulse.y * 0.08;
 }
 
-fn techno_laser_grid(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time);
-    let floor_depth = max(uv.y + 1.08, 0.09);
-    let projected = vec2<f32>(uv.x / floor_depth, 1.0 / floor_depth + turn * 0.34);
-    let floor_gate = smoothstep(-1.18, -0.72, uv.y) * (1.0 - smoothstep(-0.05, 0.38, uv.y));
-    let grid_columns = ridge(projected.x * PI * 1.25, 14.0);
-    let grid_rows = ridge(projected.y * 2.15, 14.0);
-    let floor_grid = max(grid_columns * 0.72, grid_rows) * floor_gate;
-
-    let sweep = sin(turn * 0.42) * (0.24 + params.style_b.y * 0.18);
-    let left_beam = glow(
-        uv.x + 0.86 - (uv.y + 0.92) * (0.48 + sweep),
-        64.0,
-    );
-    let right_beam = glow(
-        uv.x - 0.86 + (uv.y + 0.92) * (0.48 - sweep),
-        64.0,
-    );
-    let center_beam = glow(
-        uv.x - sin(turn * 0.68) * (uv.y + 1.05) * 0.38,
-        82.0,
-    );
-    let upper_gate = smoothstep(-1.2, -0.78, uv.y) * (1.0 - smoothstep(0.94, 1.42, uv.y));
-    let lasers = (left_beam + right_beam) * 0.58 + center_beam * 0.42;
-
-    let frame_width = 0.58 + sin(turn * 0.2) * 0.08;
-    let frame = glow(abs(uv.x) - frame_width, 72.0)
-        * smoothstep(-0.78, -0.38, uv.y)
-        * (1.0 - smoothstep(0.64, 1.02, uv.y));
-    let light_bar = ridge((uv.y + 0.82) * 12.0 - turn * 0.9, 12.0)
-        * (1.0 - smoothstep(0.5, 0.82, abs(uv.x)));
-    let floor_color = palette_field(projected.y * 0.045 + projected.x * 0.025);
-    let laser_color = palette_field(0.24 + uv.y * 0.12 + turn * 0.012);
-    return floor_color * floor_grid * 0.48
-        + laser_color * lasers * upper_gate * (0.34 + params.style_b.y * 0.48)
-        + palette_field(0.68 + turn * 0.01) * (frame * 0.5 + light_bar * 0.2);
+fn wave_center(x: f32, time: f32, offset: f32) -> f32 {
+    let travel = phase_time(time, 0.28) + offset;
+    let amplitude = 0.105
+        + params.music.y * 0.16
+        + params.reactive.x * 0.075
+        + params.reactive.w * 0.055;
+    return sin(x * 2.45 + travel) * amplitude
+        + sin(x * 5.1 - travel * 0.63 + offset * 1.7) * (0.026 + params.music.z * 0.035);
 }
 
-fn moire_rings(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let travel = phase_time(time) * 0.08;
-    let first = length(uv - vec2<f32>(sin(travel) * 0.24, cos(travel * 0.83) * 0.2));
-    let second = length(uv + vec2<f32>(cos(travel * 0.91) * 0.22, sin(travel) * 0.18));
-    let interference = abs(sin(first * 30.0) - sin(second * 31.5));
-    let bands = 1.0 - smoothstep(0.08, 0.42, interference);
-    return paint((first - second) * 1.8 + time * 0.012, bands * (0.48 + params.style_b.y * 0.72));
+fn color_splotch_wave(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let shake = sin(params.pulse.x * TAU) * params.pulse.y * 0.038
+        + sin(time * 7.0) * params.effects.y * 0.026
+        + sin(time * 3.7) * params.reactive.x * 0.022;
+    let point = uv + vec2<f32>(0.0, shake);
+    let center = wave_center(point.x, time, 0.0);
+    let distance = point.y - center;
+    let width = 0.009 + params.scene.z * 0.005;
+    let main_trace = line_glow(distance, width);
+    let body = soft_line(distance, 8.5) * (1.0 - smoothstep(0.18, 0.42, abs(distance)));
+    let echo_spacing = 0.07 + params.music.y * 0.045;
+    let echo_gate = smoothstep(0.22, 0.62, params.scene.z);
+    let upper = line_glow(distance - echo_spacing, width * 0.72) * echo_gate;
+    let lower = line_glow(distance + echo_spacing, width * 0.72) * echo_gate;
+    var color = palette_field(point.x * 0.08)
+        * (main_trace * 0.9 + body * 0.12 + (upper + lower) * 0.22);
+
+    let x_a = -0.78 + sin(time * 0.11) * 0.09;
+    let x_b = -0.24 + sin(time * 0.09 + 1.8) * 0.08;
+    let x_c = 0.33 + sin(time * 0.1 + 3.1) * 0.1;
+    let x_d = 0.86 + sin(time * 0.08 + 4.4) * 0.07;
+    let spot_a = soft_spot(point, vec2<f32>(x_a, wave_center(x_a, time, 0.0)), 0.055);
+    let spot_b = soft_spot(point, vec2<f32>(x_b, wave_center(x_b, time, 0.0)), 0.045);
+    let spot_c = soft_spot(point, vec2<f32>(x_c, wave_center(x_c, time, 0.0)), 0.065);
+    let spot_d = soft_spot(point, vec2<f32>(x_d, wave_center(x_d, time, 0.0)), 0.04);
+    let embedded = 1.0 - smoothstep(0.025, 0.16, abs(distance));
+    let high_accent = 0.52 + params.music.w * 0.32 + params.reactive.z * 0.22;
+    color += params.color_d.rgb * (spot_a + spot_c) * embedded * high_accent;
+    color += params.color_c.rgb * (spot_b + spot_d) * embedded * high_accent * 0.78;
+    return color;
 }
 
-fn infinite_checker(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let p = rotate2(uv, sin(phase_time(time) * 0.13) * 0.25);
-    let horizon = max(abs(p.y + 0.15), 0.08);
-    let projected = vec2<f32>(p.x / horizon, 1.0 / horizon + phase_time(time) * 0.55);
-    let tiles = abs(step(0.5, fract(projected.x * 2.2)) - step(0.5, fract(projected.y * 0.72)));
-    let edge = ridge(projected.x * PI, 12.0) + ridge(projected.y * PI, 12.0);
-    return paint(projected.y * 0.035 + tiles * 0.25, tiles * 0.52 + edge * 0.18)
-        * (1.0 - smoothstep(0.2, 1.45, length(uv)));
-}
-
-fn neon_lattice(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time) * 0.18;
-    let p = rotate2(uv, turn * 0.13);
-    let grid_a = ridge(p.x * 12.0 + sin(p.y * 4.0 + turn), 11.0);
-    let grid_b = ridge(p.y * 12.0 + sin(p.x * 4.0 - turn * 1.2), 11.0);
-    let diagonal = ridge((p.x + p.y) * 8.0 - turn * 1.4, 14.0) * params.style_b.y;
-    return paint(p.x * 0.18 + p.y * 0.12, max(grid_a, grid_b) * 0.58 + diagonal * 0.3);
-}
-
-fn twisted_stripes(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time);
-    let twist = sin(uv.y * 4.5 - turn * 0.8) * (0.25 + params.style_b.y * 0.45);
-    let stripes = ridge((uv.x + twist) * (10.0 + params.scene.z * 5.0) + turn, 7.0);
-    let cross = ridge((uv.y - twist * 0.55) * 8.0 - turn * 0.7, 12.0) * 0.32;
-    return paint(uv.y * 0.22 + twist * 0.3, stripes * 0.65 + cross);
-}
-
-fn rotating_snakes(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let radius = length(uv);
-    let turns = atan2(uv.y, uv.x) / TAU;
-    let sequence = fract(turns * 14.0 + radius * 5.5 - phase_time(time) * 0.08) * 4.0;
-    var luminance = 0.18;
-    if sequence >= 1.0 && sequence < 2.0 {
-        luminance = 0.82;
-    } else if sequence >= 2.0 && sequence < 3.0 {
-        luminance = 0.36;
-    } else if sequence >= 3.0 {
-        luminance = 1.0;
+fn multi_layer_wave_field(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let travel = phase_time(time, 0.24);
+    let layer_count = 3.0 + floor(params.scene.z * 5.0);
+    let spacing = 0.16 + (1.0 - params.music.x) * 0.018;
+    let amplitude = 0.045 + params.music.y * 0.09 + params.reactive.x * 0.045;
+    var color = vec3<f32>(0.0);
+    for (var layer = 0; layer < 8; layer += 1) {
+        let index = f32(layer);
+        let visibility = 1.0 - smoothstep(layer_count - 0.15, layer_count + 0.15, index);
+        let centered = index - (layer_count - 1.0) * 0.5;
+        let phase = travel + centered * 0.52;
+        let wave = centered * spacing
+            + sin(uv.x * (2.2 + index * 0.12) + phase) * amplitude
+            + sin(uv.x * 4.6 - phase * 0.7) * params.music.z * 0.025;
+        let trace = line_glow(uv.y - wave, 0.006 + params.scene.w * 0.003);
+        let breath = 0.4 + 0.6 * sin(params.pulse.x * TAU + index * 0.58) * sin(params.pulse.x * TAU + index * 0.58);
+        let strength = visibility * (0.28 + params.music.x * 0.28 + breath * params.pulse.y * 0.08);
+        color += palette_field(index * 0.085 + uv.x * 0.025) * trace * strength;
     }
-    let rings = ridge(radius * 25.0, 5.0) * 0.35 + 0.65;
-    return mix(vec3<f32>(luminance * rings), palette_field(turns * 2.0 + radius), 0.48 + params.style_b.y * 0.35)
-        * (1.0 - smoothstep(1.2, 1.5, radius));
+    let envelope = 1.0 - smoothstep(0.72, 1.18, abs(uv.y));
+    return color * envelope;
 }
 
-fn hyperbolic_tunnel(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let p = rotate2(uv, phase_time(time) * 0.045);
-    let saddle = (p.x * p.x - p.y * p.y) * (12.0 + params.scene.z * 7.0);
-    let hyperbola = ridge(saddle - phase_time(time) * 1.3, 8.0);
-    let crossing = ridge(p.x * p.y * 28.0 + phase_time(time) * 0.9, 9.0) * 0.55;
-    return paint(saddle * 0.055, max(hyperbola, crossing) * (0.48 + params.style_b.y * 0.65));
+fn fractal_bloom(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let opening = structure_opening();
+    let point = rotate2(uv / opening, phase_time(time, 0.035));
+    let radius = length(point);
+    let angle = atan2(point.y, point.x);
+    let visible_levels = 2.0 + floor(params.scene.z * 3.0);
+    var color = vec3<f32>(0.0);
+    for (var level = 0; level < 5; level += 1) {
+        let index = f32(level);
+        let visibility = 1.0 - smoothstep(visible_levels - 0.15, visible_levels + 0.15, index);
+        let petals = 6.0 + index * 4.0;
+        let base_radius = 0.19 + index * 0.155;
+        let unfold = sin(angle * petals + phase_time(time, 0.12) * (1.0 - index * 0.08));
+        let target_radius = base_radius + unfold * (0.022 + index * 0.008 + params.music.z * 0.015);
+        let trace = line_glow(radius - target_radius, 0.0065 + params.scene.w * 0.0025);
+        let hierarchy = 0.56 / (1.0 + index * 0.17);
+        color += palette_field(index * 0.11 + angle / TAU) * trace * visibility * hierarchy;
+    }
+    let core = soft_line(radius - (0.075 + params.pulse.y * 0.025), 42.0);
+    let negative_space = smoothstep(0.045, 0.12, radius);
+    color += params.color_d.rgb * core * (0.12 + params.pulse.y * 0.22);
+    return color * negative_space * (1.0 - smoothstep(0.88, 1.3, radius));
 }
 
-fn chromatic_maze(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let p = rotate2(uv, floor(phase_time(time) * 0.18) * PI * 0.5);
-    let cell = fract((p + 1.4) * (4.0 + params.scene.z * 2.0)) - 0.5;
-    let walls = max(glow(abs(cell.x) - 0.34, 42.0), glow(abs(cell.y) - 0.34, 42.0));
-    let gates = step(0.1, sin((floor(p.x * 5.0) + floor(p.y * 5.0)) * 7.1));
-    return paint(dot(floor(p * 5.0), vec2<f32>(0.07, 0.11)), walls * (0.35 + gates * 0.48));
+fn recursive_tunnel(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let opening = structure_opening();
+    let point = rotate2(uv / opening, phase_time(time, 0.055));
+    let travel = fract(phase_time(time, 0.05) + params.pulse.x * 0.06);
+    let circle_radius = length(point);
+    let diamond_radius = (abs(point.x) + abs(point.y)) * 0.72;
+    var color = vec3<f32>(0.0);
+    for (var level = 0; level < 7; level += 1) {
+        let index = f32(level);
+        let depth = fract(index / 7.0 + travel);
+        let shape = mix(circle_radius, diamond_radius, 0.32 + 0.18 * sin(index * 1.7));
+        let target_radius = 0.11 + depth * 1.02;
+        let trace = line_glow(shape - target_radius, 0.006 + depth * 0.004);
+        let fade = smoothstep(0.0, 0.12, depth) * (1.0 - smoothstep(0.72, 1.0, depth));
+        color += palette_field(depth * 0.34 + index * 0.07) * trace * fade * 0.62;
+    }
+    let center = soft_line(circle_radius, 24.0) * (0.08 + params.pulse.y * 0.2);
+    return color + params.color_d.rgb * center;
 }
 
-fn vortex_chevron(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let radius = length(uv);
-    let angle = atan2(uv.y, uv.x);
-    let teeth = abs(fract(angle / TAU * 18.0 + 0.5) - 0.5);
-    let chevron = ridge(radius * 18.0 + teeth * 7.0 - phase_time(time) * 2.0, 8.0);
-    return paint(angle / TAU * 3.0 + radius * 0.32, chevron * (0.5 + params.style_b.y * 0.72));
+fn ribbon_flow(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let travel = phase_time(time, 0.2);
+    let bend = sin(uv.x * 1.85 + travel) * (0.14 + params.music.y * 0.12)
+        + sin(uv.x * 4.2 - travel * 0.54) * (0.035 + params.music.z * 0.03);
+    let half_width = 0.075 + params.music.y * 0.055 + params.reactive.x * 0.035;
+    let distance = uv.y - bend;
+    let top = line_glow(distance - half_width, 0.008);
+    let bottom = line_glow(distance + half_width, 0.008);
+    let fill = 1.0 - smoothstep(half_width * 0.58, half_width, abs(distance));
+    var color = palette_field(uv.x * 0.06 + distance * 0.2) * ((top + bottom) * 0.62 + fill * 0.11);
+    let second_gate = smoothstep(0.48, 0.78, params.scene.z);
+    let second_center = bend * -0.48 + 0.38;
+    let second = line_glow(uv.y - second_center, 0.006) * second_gate;
+    color += accent_field(uv.x * 0.05) * second * 0.34;
+    return color * (1.0 - smoothstep(1.0, 1.5, abs(uv.x)));
 }
 
-fn glass_orbit(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time) * 0.34;
-    let a = length(uv - vec2<f32>(cos(turn), sin(turn)) * 0.42);
-    let b = length(uv - vec2<f32>(cos(turn + 2.1), sin(turn + 2.1)) * 0.55);
-    let c = length(uv - vec2<f32>(cos(turn + 4.2), sin(turn + 4.2)) * 0.34);
-    let orbits = ridge(a * 17.0, 12.0) + ridge(b * 15.0, 12.0) + ridge(c * 19.0, 12.0);
-    return paint(a * 0.24 - b * 0.18 + c * 0.13, orbits * (0.24 + params.style_b.y * 0.42));
+fn branching_tree(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let sway = sin(phase_time(time, 0.11)) * (0.035 + params.music.z * 0.045);
+    let opening = structure_opening();
+    let point = vec2<f32>(uv.x / opening, uv.y);
+    let root = vec2<f32>(0.0, -0.92);
+    let fork = vec2<f32>(sway * 0.2, -0.18);
+    var distance = sd_segment(point, root, fork);
+    var detail_distance = 10.0;
+    for (var side_index = 0; side_index < 2; side_index += 1) {
+        let side = f32(side_index) * 2.0 - 1.0;
+        let first = vec2<f32>(side * 0.3 + sway, 0.16);
+        let outer = vec2<f32>(side * 0.53 + sway * 1.4, 0.49);
+        let inner = vec2<f32>(side * 0.14 + sway * 0.7, 0.55);
+        let crown_outer = vec2<f32>(side * 0.7 + sway * 1.8, 0.78);
+        let crown_inner = vec2<f32>(side * 0.4 + sway, 0.84);
+        distance = min(distance, sd_segment(point, fork, first));
+        distance = min(distance, sd_segment(point, first, outer));
+        distance = min(distance, sd_segment(point, first, inner));
+        detail_distance = min(detail_distance, sd_segment(point, outer, crown_outer));
+        detail_distance = min(detail_distance, sd_segment(point, outer, crown_inner));
+    }
+    let trunk = line_glow(distance, 0.009 + params.music.y * 0.004);
+    let detail = line_glow(detail_distance, 0.006) * smoothstep(0.3, 0.62, params.scene.z);
+    let pulse_height = -0.88 + fract(params.pulse.x + phase_time(time, 0.03)) * 1.68;
+    let traveling_pulse = exp(-abs(point.y - pulse_height) * 18.0) * soft_line(distance, 22.0);
+    return palette_field(point.y * 0.1) * (trunk * 0.62 + detail * 0.42)
+        + params.color_d.rgb * traveling_pulse * (0.14 + params.pulse.y * 0.35);
 }
 
-fn sine_interference(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time);
-    let field = sin(uv.x * 13.0 + turn)
-        + sin(uv.y * 15.0 - turn * 0.83)
-        + sin((uv.x + uv.y) * 9.0 + turn * 1.27);
-    let contours = ridge(field * 2.2, 7.0);
-    return paint(field * 0.11 + turn * 0.008, contours * (0.52 + params.style_b.y * 0.68));
+fn contour_field(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let travel = phase_time(time, 0.09);
+    let shifted = uv + vec2<f32>(sin(travel) * 0.09, cos(travel * 0.7) * 0.07);
+    let broad = sin(shifted.x * 2.1 + travel) * 0.42
+        + cos(shifted.y * 2.6 - travel * 0.72) * 0.36;
+    let organic = field_fbm(shifted * 1.65 + vec2<f32>(travel * 0.08, -travel * 0.05)) - 0.44;
+    let focus = length(shifted - vec2<f32>(sin(travel * 0.5) * 0.24, 0.0));
+    let ripple = sin(focus * 7.0 - params.pulse.x * TAU) * params.reactive.x * 0.14;
+    let field = broad + organic * (0.52 + params.music.z * 0.18) + ripple;
+    let frequency = 5.0 + floor(params.scene.z * 5.0);
+    let contours = ridge(field * frequency, 12.0);
+    let fade = 1.0 - smoothstep(1.12, 1.65, length(uv * vec2<f32>(0.72, 1.0)));
+    return palette_field(field * 0.08) * contours * (0.34 + params.music.z * 0.25) * fade;
 }
 
-fn impossible_cubes(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let p = rotate2(uv, phase_time(time) * 0.035);
-    let iso_a = ridge((p.y + p.x * 0.577) * 13.0, 13.0);
-    let iso_b = ridge((p.y - p.x * 0.577) * 13.0, 13.0);
-    let iso_c = ridge(p.x * 11.26, 13.0);
-    let cut = step(0.0, sin((p.x + p.y) * 6.5 + phase_time(time) * 0.42));
-    return paint(p.x * 0.14 + p.y * 0.09, (iso_a * cut + iso_b * (1.0 - cut) + iso_c * 0.72) * 0.56);
+fn lattice_flow(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let travel = phase_time(time, 0.12);
+    let bend_x = sin(uv.y * 2.6 + travel) * (0.07 + params.music.z * 0.08);
+    let bend_y = sin(uv.x * 2.2 - travel * 0.76) * (0.06 + params.music.z * 0.07);
+    let point = uv + vec2<f32>(bend_x, bend_y);
+    let spacing = 0.22 - params.scene.z * 0.035;
+    let local_x = (fract(point.x / spacing + 0.5) - 0.5) * spacing;
+    let local_y = (fract(point.y / spacing + 0.5) - 0.5) * spacing;
+    let vertical = line_glow(local_x, 0.0055);
+    let horizontal = line_glow(local_y, 0.0055);
+    let intersection = vertical * horizontal;
+    let fade = 1.0 - smoothstep(0.72, 1.42, length(uv * vec2<f32>(0.7, 1.0)));
+    return palette_field(point.x * 0.04 + point.y * 0.05)
+        * (max(vertical, horizontal) * 0.32 + intersection * (0.12 + params.pulse.y * 0.24))
+        * fade;
 }
 
-fn polar_fan(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let radius = length(uv);
-    let angle = atan2(uv.y, uv.x);
-    let fan = ridge(angle * 22.0 + radius * 9.0 - phase_time(time) * 1.8, 9.0);
-    let counter = ridge(angle * 11.0 - radius * 13.0 + phase_time(time), 12.0) * 0.42;
-    return paint(angle / TAU * 4.0 - radius * 0.22, max(fan, counter) * (0.48 + params.style_b.y * 0.66));
+fn helix_spiral(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let travel = phase_time(time, 0.22);
+    let amplitude = 0.21 + params.music.y * 0.11 + params.reactive.x * 0.055;
+    let phase = uv.x * (4.2 + params.scene.z * 1.2) - travel;
+    let strand_a_y = sin(phase) * amplitude;
+    let strand_b_y = -strand_a_y;
+    let depth_a = 0.5 + 0.5 * cos(phase);
+    let depth_b = 1.0 - depth_a;
+    let strand_a = line_glow(uv.y - strand_a_y, 0.008) * (0.25 + depth_a * 0.55);
+    let strand_b = line_glow(uv.y - strand_b_y, 0.008) * (0.25 + depth_b * 0.55);
+    let rung_phase = ridge(uv.x * 11.0 - travel * 0.55, 14.0);
+    let between = 1.0 - smoothstep(amplitude * 0.72, amplitude + 0.025, abs(uv.y));
+    let rungs = rung_phase * between * (0.08 + params.scene.z * 0.18);
+    let horizontal_fade = 1.0 - smoothstep(1.02, 1.52, abs(uv.x));
+    return (palette_field(uv.x * 0.06) * (strand_a + strand_b)
+        + accent_field(uv.x * 0.04) * rungs)
+        * horizontal_fade;
 }
 
-fn gravity_lens(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time) * 0.22;
-    let lens = vec2<f32>(sin(turn) * 0.2, cos(turn * 0.73) * 0.16);
-    let delta = uv - lens;
-    let radius = max(length(delta), 0.05);
-    let warped = uv + delta / (radius * radius + 0.12) * (0.08 + params.style_b.y * 0.11);
-    let background = ridge((warped.x + warped.y * 0.35) * 15.0 - phase_time(time), 9.0);
-    let halo = glow(radius - 0.32, 32.0);
-    return paint(warped.x * 0.16 + radius * 0.3, background * 0.5 + halo * (0.35 + params.style_b.y * 0.5));
+fn ring_pulse_system(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let opening = structure_opening();
+    let point = uv / opening;
+    let radius = length(point);
+    var color = vec3<f32>(0.0);
+    for (var ring_index = 0; ring_index < 4; ring_index += 1) {
+        let index = f32(ring_index);
+        let ring_radius = 0.2 + index * 0.18 + sin(phase_time(time, 0.11) + index * 0.8) * 0.018;
+        let trace = line_glow(radius - ring_radius, 0.007 + index * 0.001);
+        let visibility = 1.0 - smoothstep(2.0 + params.scene.z * 2.0, 2.4 + params.scene.z * 2.0, index);
+        color += palette_field(index * 0.13) * trace * visibility * (0.38 + index * 0.035);
+    }
+    let emitted_radius = 0.08 + fract(params.pulse.x + phase_time(time, 0.025)) * 0.86;
+    let emitted = line_glow(radius - emitted_radius, 0.01) * (0.08 + params.pulse.y * 0.55);
+    return color + params.color_d.rgb * emitted;
 }
 
-fn ribbon_wormhole(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let radius = max(length(uv), 0.04);
-    let angle = atan2(uv.y, uv.x);
-    let depth = 1.0 / radius;
-    let ribbon_a = ridge(angle * 4.0 + depth * 2.8 - phase_time(time) * 2.4, 8.0);
-    let ribbon_b = ridge(angle * 4.0 - depth * 2.3 + phase_time(time) * 1.7, 10.0) * 0.62;
-    return paint(angle / TAU + depth * 0.09, max(ribbon_a, ribbon_b) * (0.46 + params.style_b.y * 0.7))
-        * smoothstep(0.025, 0.28, radius);
+fn arc_fan(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let origin = vec2<f32>(0.0, -0.94);
+    let point = uv - origin;
+    let radius = length(point);
+    let angle = atan2(point.x, point.y);
+    let fan_gate = 1.0 - smoothstep(0.72, 1.03, abs(angle));
+    let travel = phase_time(time, 0.12);
+    let arc_frequency = 8.0 + floor(params.scene.z * 4.0);
+    let curved_radius = radius + sin(angle * 3.0 + travel) * (0.035 + params.music.z * 0.035);
+    let arcs = ridge(curved_radius * arc_frequency - travel * 0.65, 13.0);
+    let edge = soft_line(abs(angle) - (0.68 + params.music.y * 0.08), 36.0);
+    let pulse_arc = line_glow(radius - (0.22 + fract(params.pulse.x) * 1.05), 0.012)
+        * params.pulse.y;
+    return palette_field(angle * 0.08 + radius * 0.04)
+        * (arcs * 0.44 + edge * 0.16 + pulse_arc * 0.3)
+        * fan_gate
+        * (1.0 - smoothstep(1.45, 1.9, radius));
 }
 
-fn quantum_weave(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let p = rotate2(uv, sin(phase_time(time) * 0.17) * 0.5);
-    let weave_a = ridge(p.x * p.y * 24.0 + p.x * 5.0 - phase_time(time), 8.0);
-    let weave_b = ridge(p.x * p.y * 24.0 - p.y * 5.0 + phase_time(time) * 0.8, 8.0);
-    let phase = step(0.0, sin((p.x - p.y) * 12.0));
-    return paint(p.x * p.y * 0.7, mix(weave_a, weave_b, phase) * (0.5 + params.style_b.y * 0.68));
-}
-
-fn fractal_compass(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    var p = abs(rotate2(uv, phase_time(time) * 0.04));
-    p = abs(fract(p * (2.6 + params.scene.z)) - 0.5);
-    let compass = ridge(atan2(p.y, p.x) * 8.0 + length(p) * 18.0 - phase_time(time), 9.0);
-    let diamonds = ridge((p.x + p.y) * 24.0, 11.0) * 0.4;
-    return paint(p.x * 0.7 + p.y * 0.4, max(compass, diamonds) * (0.48 + params.style_b.y * 0.66));
-}
-
-fn liquid_circuit(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let p = uv + vec2<f32>(
-        sin(uv.y * 4.0 + phase_time(time)) * params.style_b.y * 0.14,
-        sin(uv.x * 3.5 - phase_time(time) * 0.8) * params.style_b.y * 0.14,
-    );
-    let cell = fract(p * 6.0) - 0.5;
-    let horizontal = glow(cell.y, 34.0) * step(abs(cell.x), 0.42);
-    let vertical = glow(cell.x, 34.0) * step(abs(cell.y), 0.42);
-    let node = glow(length(cell) - 0.24, 42.0);
-    return paint(dot(floor(p * 6.0), vec2<f32>(0.05, 0.09)) + phase_time(time) * 0.012, max(horizontal, vertical) * 0.52 + node * 0.4);
-}
-
-fn subject_music_scale() -> f32 {
-    let beat_breath = sin(params.pulse.x * TAU) * params.music.y * 0.025;
-    return clamp(
-        0.91
-            + params.music.x * 0.065
-            + params.music.y * 0.045
-            + params.pulse.y * 0.09
-            + params.reactive.x * 0.11
-            + params.effects.y * 0.055
-            + beat_breath,
-        0.88,
-        1.28,
-    );
-}
-
-fn subject_row_scale() -> f32 {
-    let resolution = max(params.resolution_time.xy, vec2<f32>(1.0));
-    let aspect = resolution.x / resolution.y;
-    return clamp(aspect * 0.31, 0.46, 0.55);
-}
-
-fn subject_row_shift(time: f32) -> f32 {
-    return sin(time * 0.21 + params.style_b.z * TAU) * 0.11;
-}
-
-fn alien_head(uv: vec2<f32>, time: f32, variant: f32) -> vec3<f32> {
-    let point = uv / subject_music_scale();
-    let turn = phase_time(time) * 0.3 + variant * 0.22;
-    let facing = cos(turn);
-    let side = sin(turn);
-    let front_gate = smoothstep(-0.18, 0.24, facing);
-    let face_width = 0.27 + abs(facing) * 0.73;
-    let face = vec2<f32>(point.x / face_width, point.y + 0.015);
-
-    let chin_taper = 1.0 + max(-face.y + 0.03, 0.0) * 1.08;
-    let head_distance = length(vec2<f32>(face.x * chin_taper, (face.y - 0.055) * 0.92));
-    let head = 1.0 - smoothstep(0.555, 0.59, head_distance);
-    let rim = glow(head_distance - 0.573, 58.0) * head;
-    let surface_light = clamp(
-        0.56 + face.y * 0.16 - face.x * side * 0.25 + facing * 0.055,
-        0.2,
-        0.88,
-    );
-    let back_shade = 0.62 + front_gate * 0.38;
-    let skin = palette_field(0.27 + face.y * 0.1 - side * 0.055 + variant * 0.21);
-    var color = skin * head * surface_light * back_shade * (0.45 + params.style_b.y * 0.1);
-    color += mix(params.color_c.rgb, params.color_d.rgb, 0.42 + side * 0.18)
-        * rim
-        * 0.2;
-
-    let contour_phase = face.y * (7.0 + params.music.w * 3.2)
-        + sin(face.x * 3.2 + time * 0.28 + variant * 1.7)
-            * (0.72 + params.music.z * 0.9)
-        - time * (0.46 + params.music.x * 0.64)
-        - params.pulse.x * TAU * 0.32;
-    let contours = ridge(contour_phase, 8.0) * head;
-    let contour_color = palette_field(
-        variant * 0.31
-            + face.x * 0.27
-            - face.y * 0.18
-            + time * (0.052 + params.music.x * 0.055)
-            + params.music.y * 0.2
-            + params.music.w * 0.44,
-    );
-    let contour_drive = 0.11
-        + params.music.z * 0.13
-        + params.music.w * 0.2
-        + params.reactive.y * 0.16
-        + params.reactive.z * 0.28
-        + params.pulse.y * 0.07;
-    color += contour_color
-        * contours
-        * contour_drive
-        * (0.55 + front_gate * 0.45);
-
-    let feature_shift = side * 0.028;
-    let left_eye_point = rotate2(face - vec2<f32>(-0.205 + feature_shift, 0.075), -0.2);
-    let right_eye_point = rotate2(face - vec2<f32>(0.205 + feature_shift, 0.075), 0.2);
-    let left_eye_shape = 1.0 - smoothstep(
-        0.145,
-        0.175,
-        length(left_eye_point * vec2<f32>(1.15, 0.78)),
-    );
-    let right_eye_shape = 1.0 - smoothstep(
-        0.145,
-        0.175,
-        length(right_eye_point * vec2<f32>(1.15, 0.78)),
-    );
-    let left_eye = left_eye_shape * clamp(0.78 - side * 0.5, 0.08, 1.0) * front_gate;
-    let right_eye = right_eye_shape * clamp(0.78 + side * 0.5, 0.08, 1.0) * front_gate;
-    let eyes = clamp(left_eye + right_eye, 0.0, 1.0) * head;
-    color = mix(color, vec3<f32>(0.006, 0.008, 0.014), eyes * 0.985);
-
-    let left_gloss = exp(-length(left_eye_point - vec2<f32>(-0.045, 0.035)) * 86.0)
-        * left_eye;
-    let right_gloss = exp(-length(right_eye_point - vec2<f32>(-0.045, 0.035)) * 86.0)
-        * right_eye;
-    color += vec3<f32>(0.74, 0.88, 1.0) * (left_gloss + right_gloss) * 0.52;
-
-    let mouth_point = face - vec2<f32>(feature_shift * 0.4, -0.285);
-    let mouth = (1.0 - smoothstep(0.055, 0.085, length(mouth_point * vec2<f32>(1.0, 1.75))))
-        * front_gate
-        * head;
-    color = mix(color, vec3<f32>(0.012, 0.015, 0.02), mouth * 0.92);
-    let crown_gloss = exp(-length(face - vec2<f32>(-0.16, 0.34)) * 8.5)
-        * head
-        * (0.35 + front_gate * 0.65);
-    color += vec3<f32>(0.22, 0.34, 0.31) * crown_gloss * 0.11;
-    return color;
-}
-
-fn spinning_alien(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let scale = subject_row_scale();
-    let spacing = scale * 1.5;
-    let shift = subject_row_shift(time);
-    let left = alien_head(
-        (uv - vec2<f32>(shift - spacing, 0.0)) / scale,
-        time,
-        -1.0,
-    );
-    let center = alien_head((uv - vec2<f32>(shift, 0.0)) / scale, time, 0.0);
-    let right = alien_head(
-        (uv - vec2<f32>(shift + spacing, 0.0)) / scale,
-        time,
-        1.0,
-    );
-    return max(left, max(center, right));
-}
-
-fn skull_head(uv: vec2<f32>, time: f32, variant: f32) -> vec3<f32> {
-    let point = uv / subject_music_scale();
-    let turn = phase_time(time) * 0.25 + variant * 0.2;
-    let facing = cos(turn);
-    let side = sin(turn);
-    let front_gate = smoothstep(-0.2, 0.23, facing);
-    let face_width = 0.31 + abs(facing) * 0.69;
-    let face = vec2<f32>(point.x / face_width, point.y + 0.005);
-
-    let cranium_distance = length(vec2<f32>(face.x * 0.86, (face.y - 0.14) * 1.04));
-    let cranium = 1.0 - smoothstep(0.5, 0.535, cranium_distance);
-    let cheek_width = 0.34 - max(-face.y - 0.08, 0.0) * 0.22;
-    let cheek_distance = max(abs(face.x) - cheek_width, abs(face.y + 0.18) - 0.25);
-    let cheek = 1.0 - smoothstep(0.0, 0.035, cheek_distance);
-    let jaw_width = 0.245 - max(-face.y - 0.32, 0.0) * 0.18;
-    let jaw_distance = max(abs(face.x) - jaw_width, abs(face.y + 0.36) - 0.16);
-    let jaw = 1.0 - smoothstep(0.0, 0.035, jaw_distance);
-    let silhouette = max(cranium, max(cheek, jaw));
-    let rim = max(
-        glow(cranium_distance - 0.518, 58.0) * cranium,
-        glow(min(cheek_distance, jaw_distance), 58.0) * max(cheek, jaw),
-    );
-
-    let bone = palette_field(0.52 + face.y * 0.085 - side * 0.045 + variant * 0.23);
-    let surface_light = clamp(0.52 + face.y * 0.18 - face.x * side * 0.28, 0.18, 0.86);
-    var color = bone
-        * silhouette
-        * surface_light
-        * (0.36 + front_gate * 0.16 + params.style_b.y * 0.06);
-    color += mix(params.color_c.rgb, params.color_d.rgb, 0.5 + side * 0.17) * rim * 0.18;
-
-    let contour_phase = (face.y + face.x * 0.32) * (7.2 + params.music.w * 3.0)
-        + sin(face.x * 3.8 - time * 0.25 + variant * 1.9)
-            * (0.68 + params.music.z)
-        - time * (0.42 + params.music.x * 0.58)
-        - params.pulse.x * TAU * 0.28;
-    let contours = ridge(contour_phase, 8.5) * silhouette;
-    let contour_color = palette_field(
-        0.18
-            + variant * 0.29
-            - face.x * 0.24
-            + face.y * 0.2
-            + time * (0.05 + params.music.x * 0.05)
-            + params.music.z * 0.27
-            + params.music.w * 0.46,
-    );
-    let contour_drive = 0.1
-        + params.music.z * 0.14
-        + params.music.w * 0.22
-        + params.reactive.y * 0.15
-        + params.reactive.z * 0.3
-        + params.pulse.y * 0.06;
-    color += contour_color
-        * contours
-        * contour_drive
-        * (0.52 + front_gate * 0.48);
-
-    let feature_shift = side * 0.026;
-    let left_socket_point = face - vec2<f32>(-0.205 + feature_shift, 0.1);
-    let right_socket_point = face - vec2<f32>(0.205 + feature_shift, 0.1);
-    let left_socket = (1.0 - smoothstep(
-        0.13,
-        0.165,
-        length(left_socket_point * vec2<f32>(1.0, 1.28)),
-    )) * clamp(0.8 - side * 0.5, 0.08, 1.0) * front_gate;
-    let right_socket = (1.0 - smoothstep(
-        0.13,
-        0.165,
-        length(right_socket_point * vec2<f32>(1.0, 1.28)),
-    )) * clamp(0.8 + side * 0.5, 0.08, 1.0) * front_gate;
-    let nose = (1.0 - smoothstep(
-        0.055,
-        0.092,
-        abs(face.x - feature_shift * 0.45) + abs(face.y + 0.09) * 0.63,
-    )) * front_gate;
-    let mouth_point = face - vec2<f32>(feature_shift * 0.32, -0.33);
-    let mouth_cavity = (1.0 - smoothstep(
-        0.13,
-        0.165,
-        length(mouth_point * vec2<f32>(1.0, 2.1)),
-    )) * front_gate * jaw;
-    let cavities = clamp(left_socket + right_socket + nose + mouth_cavity, 0.0, 1.0)
-        * silhouette;
-    color = mix(color, vec3<f32>(0.006, 0.007, 0.011), cavities * 0.97);
-
-    let teeth_gate = mouth_cavity * smoothstep(-0.405, -0.34, face.y);
-    let tooth_bars = step(0.52, fract((face.x - feature_shift * 0.32 + 0.2) * 15.0));
-    color += bone * tooth_bars * teeth_gate * 0.12;
-    let crown_gloss = exp(-length(face - vec2<f32>(-0.14, 0.34)) * 8.0)
-        * cranium
-        * (0.3 + front_gate * 0.7);
-    color += vec3<f32>(0.38, 0.42, 0.46) * crown_gloss * 0.1;
-    return color;
-}
-
-fn spinning_skull(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let scale = subject_row_scale();
-    let spacing = scale * 1.5;
-    let shift = subject_row_shift(time);
-    let left = skull_head(
-        (uv - vec2<f32>(shift - spacing, 0.0)) / scale,
-        time,
-        -1.0,
-    );
-    let center = skull_head((uv - vec2<f32>(shift, 0.0)) / scale, time, 0.0);
-    let right = skull_head(
-        (uv - vec2<f32>(shift + spacing, 0.0)) / scale,
-        time,
-        1.0,
-    );
-    return max(left, max(center, right));
-}
-
-fn watching_eye(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time) * 0.19;
-    let p = rotate2(uv, sin(turn * 0.37) * 0.08);
-    let normalized_x = p.x / 0.84;
-    let lid_height = 0.31 * sqrt(max(0.0, 1.0 - normalized_x * normalized_x));
-    let horizontal_gate = 1.0 - smoothstep(0.8, 0.86, abs(p.x));
-    let eye = (1.0 - smoothstep(lid_height, lid_height + 0.028, abs(p.y)))
-        * horizontal_gate;
-    let lid = glow(abs(p.y) - lid_height, 58.0) * horizontal_gate;
-    let gaze = vec2<f32>(
-        sin(turn + params.reactive.y * 0.8) * 0.16,
-        sin(turn * 0.73 - params.reactive.z * 0.6) * 0.075,
-    );
-    let iris_distance = length(p - gaze);
-    let iris = (1.0 - smoothstep(0.205, 0.245, iris_distance)) * eye;
-    let pupil = (1.0 - smoothstep(0.065, 0.105, iris_distance)) * eye;
-    let highlight = glow(length(p - gaze - vec2<f32>(-0.07, 0.075)), 92.0) * iris;
-    let sclera = palette_field(0.08 + p.x * 0.08 + turn * 0.006);
-    let iris_color = palette_field(0.62 + iris_distance * 0.4 - turn * 0.012);
-    return sclera * eye * (1.0 - iris * 0.68) * (1.0 - pupil * 0.9) * 0.2
-        + iris_color * iris * (1.0 - pupil) * 0.56
-        + mix(params.color_c.rgb, params.color_d.rgb, 0.5) * lid * 0.42
-        + vec3<f32>(0.72, 0.86, 1.0) * highlight * 0.3;
-}
-
-fn chromatic_splotch_wave(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let drive = clamp(params.style_b.y, 0.0, 1.0);
-    let energy = clamp(params.music.x, 0.0, 1.0);
-    let bass = clamp(params.music.y, 0.0, 1.0);
-    let beat = clamp(params.pulse.y, 0.0, 1.0);
-    let bass_hit = clamp(params.reactive.x, 0.0, 1.0);
-    let impact = clamp(params.effects.y, 0.0, 1.0);
-    let rhythmic_shake = sin(params.pulse.x * TAU)
-        * (beat * 0.068 + bass_hit * 0.052 + impact * 0.035);
-    let continuous_shake = sin(time * (3.2 + energy * 4.4))
-        * energy
-        * (0.02 + drive * 0.038);
-    let vertical_shake = clamp(rhythmic_shake + continuous_shake, -0.13, 0.13);
-
-    var point = uv;
-    point.y += vertical_shake;
-    point.y += sin(point.x * 1.45 + phase_time(time) * 0.82)
-        * (0.075 + bass * 0.12);
-    let flow = phase_time(time) * 0.075;
-    let warp_a = field_fbm(
-        point * (1.02 + params.scene.y * 0.22) + vec2<f32>(flow, -flow * 0.68),
-    );
-    let warp_b = field_fbm(
-        point * 1.58 + vec2<f32>(-flow * 0.74, flow * 0.92) + warp_a * 1.72,
-    );
-    let warped = point + vec2<f32>(warp_a - 0.5, warp_b - 0.5)
-        * (0.34 + bass * 0.34 + drive * 0.08);
-    let broad = field_fbm(
-        warped * (0.92 + params.scene.z * 0.24)
-            + vec2<f32>(flow * 0.46, -flow * 0.31),
-    );
-    let islands = field_fbm(
-        warped * 1.68 + vec2<f32>(-flow * 0.52, flow * 0.38) + broad * 1.25,
-    );
-    let blend = smoothstep(0.34, 0.68, islands + (broad - 0.5) * 0.42);
-    let first_color = palette_field(broad * 1.42 + warp_b * 0.24);
-    let second_color = palette_field(islands * 1.56 + 0.36 - warp_a * 0.18);
-    let color = mix(first_color, second_color, blend);
-    let soft_light = 0.3 + broad * 0.35 + islands * 0.24;
-    let music_light = energy * 0.15 + beat * 0.09 + bass_hit * 0.11;
-    return color * (soft_light + music_light);
-}
-
-fn tumbling_cube(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time) * 0.18;
-    let p = rotate2(uv, turn * 0.24 + sin(turn * 0.4) * 0.08);
-    let size = 0.56 + params.reactive.x * 0.035;
-    let hex_field = max(abs(p.y), abs(p.x) * 0.866 + abs(p.y) * 0.5);
-    let cube = 1.0 - smoothstep(size, size + 0.035, hex_field);
-    let upper_face = smoothstep(-0.025, 0.025, p.y - abs(p.x) * 0.575);
-    let right_face = smoothstep(-0.025, 0.025, p.x);
-    var face_color = mix(params.color_b.rgb, params.color_c.rgb, right_face);
-    face_color = mix(face_color, params.color_d.rgb, upper_face * 0.82);
-
-    let outer_edge = glow(hex_field - size, 48.0);
-    let upper_seam = glow(p.x, 72.0) * smoothstep(-0.02, 0.16, p.y);
-    let lower_seam = glow(p.y + abs(p.x) * 0.575, 68.0)
-        * (1.0 - smoothstep(-0.04, 0.08, p.y));
-    let seams = (upper_seam + lower_seam) * cube;
-    return face_color * cube * (0.3 + params.style_b.y * 0.08)
-        + palette_field(0.3 + p.y * 0.14 + turn * 0.01) * outer_edge * 0.48
-        + palette_field(0.78 - p.x * 0.1) * seams * 0.2;
-}
-
-fn prism_vortex(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let radius = length(uv);
-    let angle = atan2(uv.y, uv.x);
-    let phase = angle * 7.0 + radius * 16.0 - phase_time(time) * 2.2;
-    let first = ridge(phase, 8.0);
-    let second = ridge(phase + TAU / 3.0, 8.0);
-    let third = ridge(phase + TAU * 2.0 / 3.0, 8.0);
-    return params.color_b.rgb * first * 0.55
-        + params.color_c.rgb * second * 0.55
-        + params.color_d.rgb * third * 0.55;
-}
-
-fn diamond_drift(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let p = rotate2(uv, phase_time(time) * 0.055);
-    let cell = fract(p * (3.5 + params.scene.z * 1.8)) - 0.5;
-    let diamond = abs(cell.x) + abs(cell.y);
-    let shells = ridge(diamond * 18.0 - phase_time(time) * 1.2, 9.0);
-    let edge = glow(diamond - 0.36, 36.0);
-    return paint(diamond * 0.6 + dot(floor(p * 4.0), vec2<f32>(0.04, 0.08)), max(shells * 0.55, edge));
-}
-
-fn orbital_mesh(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let radius = length(uv);
-    let angle = atan2(uv.y, uv.x);
-    let radial = ridge(radius * 24.0 - phase_time(time) * 1.5, 11.0);
-    let angular = ridge(angle * 16.0 + sin(radius * 8.0 - phase_time(time)) * 1.4, 12.0);
-    let nodes = radial * angular;
-    return paint(angle / TAU * 2.0 + radius * 0.33, max(radial, angular) * 0.28 + nodes * (0.45 + params.style_b.y * 0.5));
-}
-
-fn helix_portal(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let p = rotate2(uv, PI * 0.5);
-    let turn = phase_time(time);
-    let rail_a = glow(p.y - sin(p.x * 8.0 - turn) * (0.24 + params.style_b.y * 0.12), 28.0);
-    let rail_b = glow(p.y + sin(p.x * 8.0 - turn) * (0.24 + params.style_b.y * 0.12), 28.0);
-    let rungs = ridge(p.x * 14.0 - turn * 1.7, 13.0)
-        * (1.0 - smoothstep(0.08, 0.5, abs(p.y)));
-    return paint(p.x * 0.18 + turn * 0.01, (rail_a + rail_b) * 0.43 + rungs * 0.35);
-}
-
-fn radial_escalator(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let radius = length(uv);
-    let turns = atan2(uv.y, uv.x) / TAU;
-    let stair = fract(turns * 14.0 + radius * 5.0 - phase_time(time) * 0.4);
-    let riser = glow(stair - 0.08, 30.0);
-    let tread = step(0.52, stair) * ridge(radius * 15.0, 10.0);
-    return paint(turns * 3.0 + stair * 0.28, riser * 0.58 + tread * 0.35);
-}
-
-fn electric_topography(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time);
-    let height = sin(uv.x * 4.0 + turn * 0.6)
-        + sin(uv.y * 5.0 - turn * 0.5)
-        + sin((uv.x - uv.y) * 3.0 + turn * 0.8);
-    let contours = ridge(height * (5.0 + params.scene.z * 2.0), 12.0);
-    let fault = glow(uv.y - sin(uv.x * 3.0 + turn) * 0.28, 32.0) * params.style_b.y;
-    return paint(height * 0.13 + turn * 0.009, contours * 0.58 + fault * 0.38);
-}
-
-fn event_horizon(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let radius = max(length(uv), 0.015);
-    let angle = atan2(uv.y, uv.x);
-    let warped_radius = radius + sin(angle * 7.0 - phase_time(time) * 1.4) * params.style_b.y * 0.055;
-    let horizon = smoothstep(0.22, 0.27, warped_radius);
-    let disk = glow(abs(uv.y) - 0.035 / (radius + 0.2), 38.0) * smoothstep(0.15, 0.7, radius);
-    let lens_ring = glow(warped_radius - 0.32, 38.0);
-    let color = paint(angle / TAU + radius * 0.4, disk * (0.45 + params.style_b.y * 0.65) + lens_ring * 0.62);
-    return color * horizon;
-}
-
-fn kinetic_bars(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time);
-    let p = rotate2(uv, sin(turn * 0.11) * 0.055);
-    let broad_bend = sin(p.y * 3.2 + turn * 0.62) * (0.17 + params.style_b.y * 0.11);
-    let fine_bend = sin(p.y * 8.5 - turn * 0.94) * 0.045;
-    let phase = (p.x + broad_bend + fine_bend) * (15.0 + params.scene.z * 7.0);
-    let bars = smoothstep(0.42, 0.72, sin(phase) * 0.5 + 0.5);
-    let edge = ridge(phase, 15.0);
-    let counter_phase = (p.x - broad_bend * 0.45) * 8.0 + p.y * 3.0 + turn * 0.36;
-    let counter = ridge(counter_phase, 13.0) * params.style_b.y;
-    let edge_color = palette_field(p.y * 0.14 + broad_bend * 0.32 + turn * 0.008);
-    let field_color = palette_field(0.55 + p.x * 0.1 - turn * 0.006);
-    return edge_color * (bars * 0.32 + edge * 0.42)
-        + field_color * counter * (1.0 - bars) * 0.28;
-}
-
-fn bulging_checker(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time);
-    let radius = length(uv);
-    let bulge = 1.0
-        + exp(-radius * radius * 2.35)
-            * (0.54 + sin(turn * 0.42) * 0.09 + params.style_b.y * 0.18);
-    let p = rotate2(uv * bulge, sin(turn * 0.16) * 0.08);
-    let scale = 4.5 + params.scene.z * 2.6;
-    let cell = fract(p * scale + vec2<f32>(turn * 0.07, -turn * 0.055));
-    let tile = abs(step(0.5, cell.x) - step(0.5, cell.y));
-    let edge_x = ridge(p.x * scale * PI + turn * 0.22, 14.0);
-    let edge_y = ridge(p.y * scale * PI - turn * 0.18, 14.0);
-    let lens_ring = glow(radius - (0.46 + sin(turn * 0.38) * 0.08), 27.0);
-    let tile_color = palette_field(tile * 0.3 + radius * 0.16 + turn * 0.008);
-    let alternate_color = palette_field(0.62 - radius * 0.12 - turn * 0.006);
-    return mix(alternate_color * 0.08, tile_color * 0.48, tile)
-        + palette_field(p.x * 0.09 - p.y * 0.07) * (max(edge_x, edge_y) * 0.24 + lens_ring * 0.32);
+fn fractal_wave_hybrid(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let travel = phase_time(time, 0.2);
+    let base_amplitude = 0.11 + params.music.y * 0.13 + params.reactive.x * 0.05;
+    var color = vec3<f32>(0.0);
+    var amplitude = base_amplitude;
+    var frequency = 2.0;
+    for (var level = 0; level < 5; level += 1) {
+        let index = f32(level);
+        let visible = 1.0 - smoothstep(2.0 + params.scene.z * 3.0, 2.35 + params.scene.z * 3.0, index);
+        let offset = (index - 2.0) * (0.075 + params.scene.z * 0.012);
+        let wave = sin(uv.x * frequency + travel * (1.0 - index * 0.09)) * amplitude
+            + sin(uv.x * frequency * 0.5 - travel * 0.4) * amplitude * 0.24;
+        let trace = line_glow(uv.y - offset - wave, 0.006 + index * 0.0007);
+        color += palette_field(index * 0.1 + uv.x * 0.025) * trace * visible * (0.46 / (1.0 + index * 0.18));
+        amplitude *= 0.56;
+        frequency *= 1.72;
+    }
+    return color * (1.0 - smoothstep(0.78, 1.15, abs(uv.y)));
 }
 
 fn visual_family(id: u32, uv: vec2<f32>, time: f32) -> vec3<f32> {
     switch id {
-        case 0u: { return techno_laser_grid(uv, time); }
-        case 1u: { return moire_rings(uv, time); }
-        case 2u: { return infinite_checker(uv, time); }
-        case 3u: { return neon_lattice(uv, time); }
-        case 4u: { return twisted_stripes(uv, time); }
-        case 5u: { return rotating_snakes(uv, time); }
-        case 6u: { return hyperbolic_tunnel(uv, time); }
-        case 7u: { return chromatic_maze(uv, time); }
-        case 8u: { return vortex_chevron(uv, time); }
-        case 9u: { return glass_orbit(uv, time); }
-        case 10u: { return sine_interference(uv, time); }
-        case 11u: { return impossible_cubes(uv, time); }
-        case 12u: { return polar_fan(uv, time); }
-        case 13u: { return gravity_lens(uv, time); }
-        case 14u: { return ribbon_wormhole(uv, time); }
-        case 15u: { return quantum_weave(uv, time); }
-        case 16u: { return fractal_compass(uv, time); }
-        case 17u: { return liquid_circuit(uv, time); }
-        case 18u: { return spinning_alien(uv, time); }
-        case 19u: { return prism_vortex(uv, time); }
-        case 20u: { return diamond_drift(uv, time); }
-        case 21u: { return orbital_mesh(uv, time); }
-        case 22u: { return helix_portal(uv, time); }
-        case 23u: { return radial_escalator(uv, time); }
-        case 24u: { return electric_topography(uv, time); }
-        case 25u: { return event_horizon(uv, time); }
-        case 26u: { return kinetic_bars(uv, time); }
-        case 27u: { return bulging_checker(uv, time); }
-        case 28u: { return spinning_skull(uv, time); }
-        case 29u: { return watching_eye(uv, time); }
-        case 30u: { return chromatic_splotch_wave(uv, time); }
-        case 31u: { return tumbling_cube(uv, time); }
-        default: { return techno_laser_grid(uv, time); }
+        case 0u: { return color_splotch_wave(uv, time); }
+        case 1u: { return multi_layer_wave_field(uv, time); }
+        case 2u: { return fractal_bloom(uv, time); }
+        case 3u: { return recursive_tunnel(uv, time); }
+        case 4u: { return ribbon_flow(uv, time); }
+        case 5u: { return branching_tree(uv, time); }
+        case 6u: { return contour_field(uv, time); }
+        case 7u: { return lattice_flow(uv, time); }
+        case 8u: { return helix_spiral(uv, time); }
+        case 9u: { return ring_pulse_system(uv, time); }
+        case 10u: { return arc_fan(uv, time); }
+        case 11u: { return fractal_wave_hybrid(uv, time); }
+        default: { return color_splotch_wave(uv, time); }
     }
-}
-
-fn family_weight(id: u32) -> f32 {
-    var weight = 0.0;
-    if u32(round(params.style_a.x)) == id {
-        weight += params.style_a.z;
-    }
-    if params.style_a.w > 0.001 && u32(round(params.style_a.y)) == id {
-        weight += params.style_a.w;
-    }
-    return clamp(weight, 0.0, 1.0);
-}
-
-fn uses_clean_scene_coordinates(id: u32) -> bool {
-    return id == 18u || id == 28u || id == 30u;
 }
 
 fn feedback_frame(screen_uv: vec2<f32>, time: f32) -> vec3<f32> {
@@ -821,69 +421,19 @@ fn feedback_frame(screen_uv: vec2<f32>, time: f32) -> vec3<f32> {
     let aspect = resolution.x / resolution.y;
     var point = screen_uv * 2.0 - 1.0;
     point.x *= aspect;
-    let radius = max(length(point), 0.001);
-    let radial = point / radius;
-    let seed_phase = params.style_b.z * TAU;
-    let turn = (0.35 + sin(time * 0.11 + seed_phase) * 0.65)
-        * (params.feedback.y * 0.48 + params.feedback.z * 0.36);
-    point = rotate2(point, turn);
-    point *= 1.0 - params.feedback.y
-        * (1.0 + params.pulse.y * 0.72 + params.reactive.x * 0.58);
-    let liquid_flow = vec2<f32>(
-        sin(point.y * 3.7 + time * 0.21 + seed_phase),
-        cos(point.x * 3.1 - time * 0.17 - seed_phase * 0.7),
-    );
-    let radial_flow = radial
-        * sin(radius * (5.0 + params.scene.z * 2.5) - time * 0.34 + seed_phase)
-        * (0.35 + params.reactive.x * 0.65);
-    point += (liquid_flow + radial_flow) * params.feedback.z;
-
+    point = rotate2(point, params.feedback.z * sin(time * 0.09));
+    point *= 1.0 - params.feedback.y * (1.0 + params.reactive.x * 0.5);
+    point += vec2<f32>(
+        sin(point.y * 2.8 + time * 0.15),
+        cos(point.x * 2.5 - time * 0.13),
+    ) * params.feedback.z;
     point.x /= aspect;
     let sample_uv = point * 0.5 + 0.5;
     let edge = smoothstep(0.0, 0.025, sample_uv.x)
         * (1.0 - smoothstep(0.975, 1.0, sample_uv.x))
         * smoothstep(0.0, 0.025, sample_uv.y)
         * (1.0 - smoothstep(0.975, 1.0, sample_uv.y));
-    let split_direction = vec2<f32>(
-        cos(seed_phase + time * 0.07),
-        sin(seed_phase * 0.73 - time * 0.06),
-    ) * params.feedback.w;
-    let center = textureSample(feedback_texture, feedback_sampler, sample_uv).rgb;
-    let split = vec3<f32>(
-        textureSample(feedback_texture, feedback_sampler, sample_uv + split_direction).r,
-        center.g,
-        textureSample(feedback_texture, feedback_sampler, sample_uv - split_direction).b,
-    );
-    let hue_drift = clamp(params.feedback.w * 5.0, 0.0, 0.08);
-    return mix(split, split.gbr, hue_drift) * edge;
-}
-
-fn spectral_signal_ribbon(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let drive = clamp(params.style_b.y, 0.0, 1.0);
-    let trails = modifier_strength(4u);
-    let phase = phase_time(time) * 1.35 + params.style_b.z * TAU;
-    let carrier = sin(uv.x * (7.0 + params.music.z * 6.0) + phase)
-        * (0.035 + params.music.y * 0.09);
-    let harmonic = sin(uv.x * (17.0 + params.music.w * 11.0) - phase * 1.47)
-        * (0.012 + params.music.w * 0.035);
-    let center = sin(time * 0.13 + params.style_b.z * 11.0) * 0.27;
-    let signal = center + carrier + harmonic;
-    let main_trace = glow(uv.y - signal, 78.0);
-    let after_trace = glow(uv.y - signal - 0.035 - params.reactive.y * 0.025, 34.0);
-    let sample_lights = ridge(
-        uv.x * (22.0 + params.scene.z * 12.0) - phase * 0.6,
-        16.0,
-    ) * main_trace;
-    let horizontal_gate = smoothstep(-1.32, -1.08, uv.x)
-        * (1.0 - smoothstep(1.08, 1.32, uv.x));
-    let signal_scene = clamp(family_weight(29u) * 0.35, 0.0, 1.0);
-    let strength = (0.012 + drive * 0.035 + trails * 0.04)
-        * (0.45 + params.music.z * 0.32 + params.music.w * 0.23);
-    return palette_field(uv.x * 0.14 + phase * 0.012)
-        * (main_trace + after_trace * 0.24 + sample_lights * 0.38)
-        * horizontal_gate
-        * strength
-        * signal_scene;
+    return textureSample(feedback_texture, feedback_sampler, sample_uv).rgb * edge;
 }
 
 @fragment
@@ -891,189 +441,51 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let resolution = max(params.resolution_time.xy, vec2<f32>(1.0));
     let screen_uv = position.xy / resolution;
     let stable_uv = (position.xy * 2.0 - resolution) / resolution.y;
-    var uv = stable_uv;
     let time = params.resolution_time.z;
-    let drive = clamp(params.style_b.y, 0.0, 1.0);
     let beat_zoom = modifier_strength(1u);
-    let bass_warp = modifier_strength(2u);
-    let mirror_fold = modifier_strength(5u);
-    let bass_hit = clamp(params.reactive.x, 0.0, 1.0);
-    let mid_motion = clamp(params.reactive.y, 0.0, 1.0);
-    let high_hit = clamp(params.reactive.z, 0.0, 1.0);
-    let energy_rise = clamp(params.reactive.w, 0.0, 1.0);
-
-    let source_radius = max(length(uv), 0.001);
-    let radial_direction = uv / source_radius;
-    let bass_wave = sin(
-        source_radius * (12.0 + params.scene.z * 9.0) - params.pulse.x * TAU,
-    );
-    uv += radial_direction * bass_wave * bass_hit * (0.026 + drive * 0.046);
-    let mid_bend = vec2<f32>(
-        sin(uv.y * (4.0 + params.music.z * 4.5) + phase_time(time) * 0.7),
-        sin(uv.x * (3.4 + params.music.z * 3.8) - phase_time(time) * 0.56),
-    );
-    uv += mid_bend * mid_motion * (0.024 + params.music.z * 0.038);
-    let slice_rate = 6.0 + floor(params.music.w * 8.0);
-    let slice = floor((uv.y + 1.7) * slice_rate);
-    let slice_tick = floor(time * (6.0 + high_hit * 12.0) + params.pulse.x * 4.0);
-    uv.x += (hash21(vec2<f32>(slice, slice_tick)) - 0.5)
-        * high_hit
-        * (0.026 + drive * 0.046);
-    let onset_tick = floor(time * 10.0);
-    let onset_turn = (hash21(vec2<f32>(onset_tick, params.style_b.z * 97.0)) - 0.5)
-        * params.pulse.z
-        * (0.045 + drive * 0.055);
-    uv = rotate2(uv, onset_turn);
-
-    uv = rotate2(uv, sin(time * (0.16 + drive * 0.8)) * drive * 0.045);
-    uv *= 1.0
-        - params.pulse.y * (0.035 + drive * 0.06 + beat_zoom * 0.075)
-        - bass_hit * (0.055 + beat_zoom * 0.06)
-        - energy_rise * 0.028
-        - params.pulse.w * 0.06;
-    uv += vec2<f32>(
-        sin(uv.y * 3.2 + time * 1.1),
-        sin(uv.x * 2.8 - time * 0.9),
-    ) * (
-        params.music.y * drive * (0.035 + bass_warp * 0.07)
-        + mid_motion * (0.025 + bass_warp * 0.025)
-    );
-    uv.x = mix(uv.x, abs(uv.x) - 0.3, mirror_fold * drive * 0.7);
+    let scale = 1.0
+        - params.pulse.y * (0.012 + beat_zoom * 0.045)
+        - params.reactive.x * 0.022
+        - params.reactive.w * 0.014;
+    let uv = stable_uv * scale;
 
     let primary_id = u32(round(params.style_a.x));
     let secondary_id = u32(round(params.style_a.y));
-    var primary_uv = uv;
-    if uses_clean_scene_coordinates(primary_id) {
-        primary_uv = stable_uv;
-    }
-    var secondary_uv = uv;
-    if uses_clean_scene_coordinates(secondary_id) {
-        secondary_uv = stable_uv;
-    }
-    var color = visual_family(primary_id, primary_uv, time) * params.style_a.z;
+    var color = visual_family(primary_id, uv, time) * params.style_a.z;
     if params.style_a.w > 0.001 {
-        color += visual_family(secondary_id, secondary_uv, time) * params.style_a.w;
+        color += visual_family(secondary_id, uv, time) * params.style_a.w;
     }
 
-    let clean_scene_weight = clamp(
-        family_weight(18u) + family_weight(28u) + family_weight(30u),
-        0.0,
-        1.0,
-    );
-    let overlay_weight = 1.0 - clean_scene_weight;
-    let presentation_uv = mix(uv, stable_uv, clean_scene_weight);
     let vignette = 1.0 - smoothstep(
-        0.25,
-        1.55,
-        length(presentation_uv * vec2<f32>(0.7, 1.0)),
+        0.82,
+        1.62,
+        length(stable_uv * vec2<f32>(0.68, 1.0)),
     );
-    color *= (0.32 + vignette * 0.78)
+    color *= (0.58 + vignette * 0.42)
         * params.visual.w
-        * (0.86 + params.pulse.y * 0.17 + bass_hit * 0.16 + energy_rise * 0.3);
-    color += palette_field(length(uv) * 0.2 + time * 0.01)
-        * params.pulse.z
-        * drive
-        * 0.16
-        * overlay_weight;
+        * (0.9 + params.music.x * 0.12 + params.reactive.w * 0.15);
 
-    let response_radius = length(uv);
-    let response_angle = atan2(uv.y, uv.x);
-    let bass_front = glow(
-        response_radius - (0.12 + fract(params.pulse.x + bass_hit * 0.08) * 1.18),
-        20.0,
-    );
-    color += palette_field(response_angle / TAU + response_radius * 0.42)
-        * bass_front
-        * bass_hit
-        * (0.12 + drive * 0.18)
-        * overlay_weight;
-    let mid_ribs = ridge(
-        (uv.x + uv.y * 0.74) * (5.0 + params.music.z * 4.0)
-            + phase_time(time) * 0.9,
-        10.0,
-    );
-    color += palette_field(uv.x * 0.21 - uv.y * 0.13 + params.music.z * 0.24)
-        * mid_ribs
-        * mid_motion
-        * (0.025 + params.music.z * 0.06)
-        * overlay_weight;
-    let shard_count = 8.0 + floor(params.music.w * 8.0);
-    let high_ray = ridge(
-        response_angle * shard_count
-            + sin(response_radius * 7.0 - phase_time(time)) * 1.15
-            + time * (2.2 + high_hit * 3.4),
-        16.0,
-    );
-    let high_gate = 0.28
-        + ridge(
-            response_radius * 19.0 - phase_time(time) * 1.8 + params.style_b.z * TAU,
-            11.0,
-        ) * 0.72;
-    let high_shard = high_ray
-        * high_gate
-        * smoothstep(0.08, 0.34, response_radius)
-        * (1.0 - smoothstep(1.1, 1.58, response_radius));
-    color += palette_field(response_angle / TAU * 4.0 + response_radius * 0.3)
-        * high_shard
-        * high_hit
-        * (0.07 + drive * 0.12)
-        * overlay_weight;
-    let spectral_tint = palette_field(
-        response_angle / TAU
-            + params.music.y * 0.12
-            + params.music.z * 0.28
-            + params.music.w * 0.46,
-    );
-    let color_reaction = clamp(
-        bass_hit * 0.1
-            + mid_motion * 0.08
-            + high_hit * 0.18
-            + params.pulse.z * 0.12,
-        0.0,
-        0.55,
-    );
-    color = mix(color, color * (0.52 + spectral_tint * 1.58), color_reaction);
-
-    let sparkle = modifier_strength(3u);
-    if sparkle > 0.001 {
-        let cell = floor((uv + time * vec2<f32>(0.12, -0.08)) * 38.0);
-        let seed = hash21(cell);
-        let mask = step(0.988 - params.music.w * 0.025, seed)
-            * ridge(time * 8.0 + seed * TAU, 12.0);
-        color += palette_field(seed) * mask * sparkle * drive * 0.32 * overlay_weight;
-    }
-
-    color += spectral_signal_ribbon(uv, time);
-
-    let chromatic = modifier_strength(6u);
-    color = mix(
-        color,
-        color.gbr,
-        chromatic * drive * params.pulse.z * 0.18 * overlay_weight,
-    );
     let impact_bloom = modifier_strength(7u);
-    let impact_level = clamp(params.effects.y, 0.0, 1.0);
-    let impact_ring = glow(length(uv) - (0.16 + impact_level * 0.92), 24.0);
-    color += palette_field(length(uv) * 0.3 + time * 0.04)
-        * impact_ring
-        * max(impact_bloom, impact_level * drive)
-        * 0.44
-        * overlay_weight;
+    color *= 1.0 + max(params.effects.y * 0.08, impact_bloom * params.pulse.y * 0.18);
 
-    let previous = feedback_frame(screen_uv, time);
-    let feedback_decay = 0.82 + params.feedback.x * 0.13;
-    let persistent_light = max(color, previous * feedback_decay);
-    color = mix(color, persistent_light, params.feedback.x * overlay_weight);
+    let echo_trails = modifier_strength(4u);
+    let feedback_mix = params.feedback.x * (0.16 + echo_trails * 0.72);
+    let previous = feedback_frame(screen_uv, time) * 0.92;
+    color = mix(color, max(color, previous), feedback_mix);
 
-    color = mix(color, vec3<f32>(1.0), params.pulse.w * (0.54 + drive * 0.16));
+    color = mix(color, vec3<f32>(1.0), params.pulse.w * 0.58);
     let luminance = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
-    let luminance_budget = 0.7 + params.scene.w * 0.32 + drive * 0.12;
+    let luminance_budget = 0.56 + params.scene.w * 0.3;
     if luminance > luminance_budget {
         color *= luminance_budget / max(luminance, 0.001);
     }
-    color = mix(vec3<f32>(dot(color, vec3<f32>(0.2126, 0.7152, 0.0722))), color, params.style_b.x);
-    color = 1.0 - exp(-max(color, vec3<f32>(0.0)) * (1.22 + drive * 0.26));
-    color = pow(max(color, vec3<f32>(0.0)), vec3<f32>(0.94));
+    color = mix(
+        vec3<f32>(dot(color, vec3<f32>(0.2126, 0.7152, 0.0722))),
+        color,
+        params.style_b.x,
+    );
+    color = 1.0 - exp(-max(color, vec3<f32>(0.0)) * 1.24);
+    color = pow(max(color, vec3<f32>(0.0)), vec3<f32>(0.95));
     if params.style_b.w > 0.5 {
         color = vec3<f32>(0.0);
     }

@@ -17,7 +17,7 @@ interface SmoothedState {
   colors: number[][];
 }
 
-const ambientPreviewFamilies = [9, 12, 13, 14, 15] as const;
+const ambientPreviewFamilies = [0, 1, 2, 3] as const;
 
 export function PerformanceCanvas({ settings, className = "", paused = false }: PerformanceCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);

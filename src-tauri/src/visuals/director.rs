@@ -15,98 +15,40 @@ const PHRASE_STALE_AFTER: Duration = Duration::from_secs(5);
 #[repr(u32)]
 pub enum VisualFamily {
     #[default]
-    TechnoLaserGrid = 0,
-    MoireRings = 1,
-    InfiniteChecker = 2,
-    NeonLattice = 3,
-    TwistedStripes = 4,
-    RotatingSnakes = 5,
-    HyperbolicTunnel = 6,
-    ChromaticMaze = 7,
-    VortexChevron = 8,
-    GlassOrbit = 9,
-    SineInterference = 10,
-    ImpossibleCubes = 11,
-    PolarFan = 12,
-    GravityLens = 13,
-    RibbonWormhole = 14,
-    QuantumWeave = 15,
-    FractalCompass = 16,
-    LiquidCircuit = 17,
-    SpinningAlien = 18,
-    PrismVortex = 19,
-    DiamondDrift = 20,
-    OrbitalMesh = 21,
-    HelixPortal = 22,
-    RadialEscalator = 23,
-    ElectricTopography = 24,
-    EventHorizon = 25,
-    KineticBars = 26,
-    BulgingChecker = 27,
-    SpinningSkull = 28,
-    WatchingEye = 29,
-    ChromaticSplotchWave = 30,
-    TumblingCube = 31,
+    ColorSplotchWave = 0,
+    MultiLayerWaveField = 1,
+    FractalBloom = 2,
+    RecursiveTunnel = 3,
+    RibbonFlow = 4,
+    BranchingTree = 5,
+    ContourField = 6,
+    LatticeFlow = 7,
+    HelixSpiral = 8,
+    RingPulseSystem = 9,
+    ArcFan = 10,
+    FractalWaveHybrid = 11,
 }
 
-const ALL_ILLUSIONS: [VisualFamily; 32] = [
-    VisualFamily::TechnoLaserGrid,
-    VisualFamily::MoireRings,
-    VisualFamily::InfiniteChecker,
-    VisualFamily::NeonLattice,
-    VisualFamily::TwistedStripes,
-    VisualFamily::RotatingSnakes,
-    VisualFamily::HyperbolicTunnel,
-    VisualFamily::ChromaticMaze,
-    VisualFamily::VortexChevron,
-    VisualFamily::GlassOrbit,
-    VisualFamily::SineInterference,
-    VisualFamily::ImpossibleCubes,
-    VisualFamily::PolarFan,
-    VisualFamily::GravityLens,
-    VisualFamily::RibbonWormhole,
-    VisualFamily::QuantumWeave,
-    VisualFamily::FractalCompass,
-    VisualFamily::LiquidCircuit,
-    VisualFamily::SpinningAlien,
-    VisualFamily::PrismVortex,
-    VisualFamily::DiamondDrift,
-    VisualFamily::OrbitalMesh,
-    VisualFamily::HelixPortal,
-    VisualFamily::RadialEscalator,
-    VisualFamily::ElectricTopography,
-    VisualFamily::EventHorizon,
-    VisualFamily::KineticBars,
-    VisualFamily::BulgingChecker,
-    VisualFamily::SpinningSkull,
-    VisualFamily::WatchingEye,
-    VisualFamily::ChromaticSplotchWave,
-    VisualFamily::TumblingCube,
+const ALL_PRESETS: [VisualFamily; 12] = [
+    VisualFamily::ColorSplotchWave,
+    VisualFamily::MultiLayerWaveField,
+    VisualFamily::FractalBloom,
+    VisualFamily::RecursiveTunnel,
+    VisualFamily::RibbonFlow,
+    VisualFamily::BranchingTree,
+    VisualFamily::ContourField,
+    VisualFamily::LatticeFlow,
+    VisualFamily::HelixSpiral,
+    VisualFamily::RingPulseSystem,
+    VisualFamily::ArcFan,
+    VisualFamily::FractalWaveHybrid,
 ];
 
-const READABLE_ILLUSIONS: [VisualFamily; 15] = [
-    VisualFamily::SpinningAlien,
-    VisualFamily::SpinningSkull,
-    VisualFamily::WatchingEye,
-    VisualFamily::ChromaticSplotchWave,
-    VisualFamily::TumblingCube,
-    VisualFamily::InfiniteChecker,
-    VisualFamily::ChromaticMaze,
-    VisualFamily::GlassOrbit,
-    VisualFamily::ImpossibleCubes,
-    VisualFamily::GravityLens,
-    VisualFamily::LiquidCircuit,
-    VisualFamily::DiamondDrift,
-    VisualFamily::EventHorizon,
-    VisualFamily::BulgingChecker,
-    VisualFamily::TechnoLaserGrid,
-];
-
-const FEATURED_ILLUSIONS: [VisualFamily; 4] = [
-    VisualFamily::SpinningAlien,
-    VisualFamily::SpinningSkull,
-    VisualFamily::WatchingEye,
-    VisualFamily::ChromaticSplotchWave,
+const CORE_PRESETS: [VisualFamily; 4] = [
+    VisualFamily::ColorSplotchWave,
+    VisualFamily::MultiLayerWaveField,
+    VisualFamily::FractalBloom,
+    VisualFamily::RecursiveTunnel,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -114,11 +56,7 @@ const FEATURED_ILLUSIONS: [VisualFamily; 4] = [
 pub enum ModifierKind {
     PaletteDrift = 0,
     BeatZoom = 1,
-    BassWarp = 2,
-    HighSparkle = 3,
     EchoTrails = 4,
-    MirrorFold = 5,
-    ChromaticSplit = 6,
     ImpactBloom = 7,
 }
 
@@ -175,7 +113,7 @@ pub struct ScenePlan {
 impl Default for ScenePlan {
     fn default() -> Self {
         Self {
-            primary: VisualFamily::TechnoLaserGrid,
+            primary: VisualFamily::ColorSplotchWave,
             secondary: None,
             primary_mix: 1.0,
             secondary_mix: 0.0,
@@ -294,7 +232,7 @@ impl SceneDirector {
     pub fn new(session_seed: u64) -> Self {
         Self {
             session_seed: session_seed.max(1),
-            current_primary: VisualFamily::TechnoLaserGrid,
+            current_primary: VisualFamily::ColorSplotchWave,
             last_switch_seconds: -MIN_DWELL_SECONDS,
             active_transition: None,
             last_phrase_key: None,
@@ -478,15 +416,10 @@ impl SceneDirector {
     }
 
     fn choose_primary(&self, _phrase: PhraseKind, key: u64) -> VisualFamily {
-        if let Some(featured) = featured_for_auto_shuffle(self.auto_shuffle_counter) {
-            return featured;
+        if let Some(core) = core_for_auto_shuffle(self.auto_shuffle_counter) {
+            return core;
         }
-        let candidates: &[VisualFamily] =
-            if self.auto_shuffle_counter > 0 && self.auto_shuffle_counter.is_multiple_of(6) {
-                &ALL_ILLUSIONS
-            } else {
-                &READABLE_ILLUSIONS
-            };
+        let candidates = &ALL_PRESETS;
         let start = mix_seed(self.session_seed, key) as usize % candidates.len();
         for offset in 0..candidates.len() {
             let candidate = candidates[(start + offset) % candidates.len()];
@@ -633,11 +566,11 @@ impl SceneDirector {
     }
 }
 
-fn featured_for_auto_shuffle(shuffle: u64) -> Option<VisualFamily> {
+fn core_for_auto_shuffle(shuffle: u64) -> Option<VisualFamily> {
     if shuffle == 0 || shuffle.is_multiple_of(2) {
         return None;
     }
-    Some(FEATURED_ILLUSIONS[((shuffle - 1) / 2) as usize % FEATURED_ILLUSIONS.len()])
+    Some(CORE_PRESETS[((shuffle - 1) / 2) as usize % CORE_PRESETS.len()])
 }
 
 fn modifier_for_phrase(phrase: PhraseKind, key: u64) -> ModifierKind {
@@ -648,24 +581,20 @@ fn modifier_for_phrase(phrase: PhraseKind, key: u64) -> ModifierKind {
         PhraseKind::Verse => &[
             ModifierKind::BeatZoom,
             ModifierKind::PaletteDrift,
-            ModifierKind::HighSparkle,
+            ModifierKind::EchoTrails,
         ],
         PhraseKind::Up => &[
-            ModifierKind::BassWarp,
-            ModifierKind::ChromaticSplit,
             ModifierKind::BeatZoom,
+            ModifierKind::PaletteDrift,
+            ModifierKind::EchoTrails,
         ],
         PhraseKind::Chorus => &[
             ModifierKind::BeatZoom,
-            ModifierKind::MirrorFold,
-            ModifierKind::ChromaticSplit,
+            ModifierKind::ImpactBloom,
+            ModifierKind::PaletteDrift,
         ],
         PhraseKind::Down => &[ModifierKind::EchoTrails, ModifierKind::PaletteDrift],
-        PhraseKind::Bridge => &[
-            ModifierKind::MirrorFold,
-            ModifierKind::PaletteDrift,
-            ModifierKind::HighSparkle,
-        ],
+        PhraseKind::Bridge => &[ModifierKind::PaletteDrift, ModifierKind::EchoTrails],
         PhraseKind::Fill => &[ModifierKind::ImpactBloom, ModifierKind::BeatZoom],
         PhraseKind::Unknown => &[ModifierKind::PaletteDrift, ModifierKind::BeatZoom],
     };
@@ -673,33 +602,15 @@ fn modifier_for_phrase(phrase: PhraseKind, key: u64) -> ModifierKind {
 }
 
 fn modifier_compatible(base: VisualFamily, modifier: ModifierKind) -> bool {
-    if matches!(
-        base,
-        VisualFamily::SpinningAlien
-            | VisualFamily::SpinningSkull
-            | VisualFamily::WatchingEye
-            | VisualFamily::ChromaticSplotchWave
-            | VisualFamily::TumblingCube
-    ) {
-        return matches!(
-            modifier,
-            ModifierKind::PaletteDrift | ModifierKind::BeatZoom | ModifierKind::ImpactBloom
-        );
-    }
     match modifier {
-        ModifierKind::MirrorFold => !matches!(
+        ModifierKind::PaletteDrift | ModifierKind::BeatZoom | ModifierKind::ImpactBloom => true,
+        ModifierKind::EchoTrails => matches!(
             base,
-            VisualFamily::RotatingSnakes
-                | VisualFamily::RadialEscalator
-                | VisualFamily::BulgingChecker
+            VisualFamily::RecursiveTunnel
+                | VisualFamily::RibbonFlow
+                | VisualFamily::ContourField
+                | VisualFamily::HelixSpiral
         ),
-        ModifierKind::EchoTrails => !matches!(
-            base,
-            VisualFamily::MoireRings | VisualFamily::NeonLattice | VisualFamily::OrbitalMesh
-        ),
-        ModifierKind::HighSparkle => !matches!(base, VisualFamily::EventHorizon),
-        ModifierKind::ChromaticSplit => !matches!(base, VisualFamily::PrismVortex),
-        _ => true,
     }
 }
 
@@ -768,12 +679,11 @@ fn phrase_for_music_state(state: MusicState) -> PhraseKind {
 
 fn manual_family(style: VisualStyle) -> VisualFamily {
     match style {
-        VisualStyle::Auto => VisualFamily::TechnoLaserGrid,
-        VisualStyle::Tunnel => VisualFamily::HyperbolicTunnel,
-        VisualStyle::Fluid => VisualFamily::ChromaticSplotchWave,
-        VisualStyle::Waves => VisualFamily::SineInterference,
-        VisualStyle::Pulse => VisualFamily::MoireRings,
-        VisualStyle::Burst => VisualFamily::PrismVortex,
+        VisualStyle::Auto | VisualStyle::Fluid => VisualFamily::ColorSplotchWave,
+        VisualStyle::Tunnel => VisualFamily::RecursiveTunnel,
+        VisualStyle::Waves => VisualFamily::MultiLayerWaveField,
+        VisualStyle::Pulse => VisualFamily::RingPulseSystem,
+        VisualStyle::Burst => VisualFamily::FractalBloom,
     }
 }
 
@@ -976,7 +886,7 @@ mod tests {
             VisualStyle::Tunnel,
             IntensityProfile::Wild,
         );
-        assert_eq!(settled.primary, VisualFamily::HyperbolicTunnel);
+        assert_eq!(settled.primary, VisualFamily::RecursiveTunnel);
         assert!(settled.secondary.is_none());
     }
 
@@ -984,7 +894,7 @@ mod tests {
     fn recent_scene_history_is_bounded() {
         let mut director = SceneDirector::new(1);
         for index in 0..32 {
-            director.remember(VisualFamily::LiquidCircuit, None, index);
+            director.remember(VisualFamily::ContourField, None, index);
         }
         assert_eq!(director.recent.len(), HISTORY_LIMIT);
     }
@@ -1035,9 +945,9 @@ mod tests {
         );
         assert_eq!(director.auto_shuffle_counter, 1);
         assert!(
-            first_feature.primary == VisualFamily::SpinningAlien
-                || first_feature.secondary == Some(VisualFamily::SpinningAlien),
-            "the first automatic shuffle must surface the alien"
+            first_feature.primary == VisualFamily::ColorSplotchWave
+                || first_feature.secondary == Some(VisualFamily::ColorSplotchWave),
+            "the first automatic shuffle must surface the signature wave"
         );
 
         let mut fallback = SceneDirector::new(18);
@@ -1061,57 +971,50 @@ mod tests {
     }
 
     #[test]
-    fn auto_library_contains_thirty_two_distinct_illusions_without_a_spiral() {
-        let distinct = ALL_ILLUSIONS
+    fn auto_library_contains_twelve_distinct_abstract_presets() {
+        let distinct = ALL_PRESETS
             .iter()
             .copied()
             .collect::<std::collections::HashSet<_>>();
-        assert_eq!(ALL_ILLUSIONS.len(), 32);
-        assert_eq!(distinct.len(), ALL_ILLUSIONS.len());
-        assert!(ALL_ILLUSIONS.contains(&VisualFamily::TechnoLaserGrid));
-        assert!(ALL_ILLUSIONS.contains(&VisualFamily::SpinningAlien));
-        assert!(ALL_ILLUSIONS.contains(&VisualFamily::KineticBars));
-        assert!(ALL_ILLUSIONS.contains(&VisualFamily::BulgingChecker));
-        assert!(ALL_ILLUSIONS.contains(&VisualFamily::SpinningSkull));
-        assert!(ALL_ILLUSIONS.contains(&VisualFamily::WatchingEye));
-        assert!(ALL_ILLUSIONS.contains(&VisualFamily::ChromaticSplotchWave));
-        assert!(ALL_ILLUSIONS.contains(&VisualFamily::TumblingCube));
+        assert_eq!(ALL_PRESETS.len(), 12);
+        assert_eq!(distinct.len(), ALL_PRESETS.len());
         assert!(
-            READABLE_ILLUSIONS
+            CORE_PRESETS
                 .iter()
-                .all(|family| ALL_ILLUSIONS.contains(family)),
-            "the prioritized library must be a subset of the full library"
+                .all(|family| ALL_PRESETS.contains(family)),
+            "the core rotation must be a subset of the full library"
+        );
+        assert!(ALL_PRESETS.contains(&VisualFamily::ColorSplotchWave));
+        assert!(ALL_PRESETS.contains(&VisualFamily::FractalBloom));
+        assert!(ALL_PRESETS.contains(&VisualFamily::HelixSpiral));
+        assert!(ALL_PRESETS.contains(&VisualFamily::FractalWaveHybrid));
+    }
+
+    #[test]
+    fn core_rotation_starts_with_signature_wave_and_repeats() {
+        assert_eq!(core_for_auto_shuffle(0), None);
+        assert_eq!(
+            core_for_auto_shuffle(1),
+            Some(VisualFamily::ColorSplotchWave)
+        );
+        assert_eq!(core_for_auto_shuffle(2), None);
+        assert_eq!(
+            core_for_auto_shuffle(3),
+            Some(VisualFamily::MultiLayerWaveField)
+        );
+        assert_eq!(core_for_auto_shuffle(5), Some(VisualFamily::FractalBloom));
+        assert_eq!(
+            core_for_auto_shuffle(7),
+            Some(VisualFamily::RecursiveTunnel)
+        );
+        assert_eq!(
+            core_for_auto_shuffle(9),
+            Some(VisualFamily::ColorSplotchWave)
         );
     }
 
     #[test]
-    fn featured_rotation_starts_with_alien_and_repeats_featured_scenes() {
-        assert_eq!(featured_for_auto_shuffle(0), None);
-        assert_eq!(
-            featured_for_auto_shuffle(1),
-            Some(VisualFamily::SpinningAlien)
-        );
-        assert_eq!(featured_for_auto_shuffle(2), None);
-        assert_eq!(
-            featured_for_auto_shuffle(3),
-            Some(VisualFamily::SpinningSkull)
-        );
-        assert_eq!(
-            featured_for_auto_shuffle(5),
-            Some(VisualFamily::WatchingEye)
-        );
-        assert_eq!(
-            featured_for_auto_shuffle(7),
-            Some(VisualFamily::ChromaticSplotchWave)
-        );
-        assert_eq!(
-            featured_for_auto_shuffle(9),
-            Some(VisualFamily::SpinningAlien)
-        );
-    }
-
-    #[test]
-    fn four_minute_quiet_fallback_surfaces_every_featured_scene() {
+    fn four_minute_quiet_fallback_surfaces_every_core_preset() {
         let now = Instant::now();
         let phrase = context(now, PhraseKind::Verse, 0);
         let frame = VisualInputFrame {
@@ -1156,17 +1059,33 @@ mod tests {
             shown.insert(settled.primary);
         }
 
-        assert!(shown.contains(&VisualFamily::SpinningAlien));
-        assert!(shown.contains(&VisualFamily::SpinningSkull));
-        assert!(shown.contains(&VisualFamily::WatchingEye));
-        assert!(shown.contains(&VisualFamily::ChromaticSplotchWave));
+        assert!(shown.contains(&VisualFamily::ColorSplotchWave));
+        assert!(shown.contains(&VisualFamily::MultiLayerWaveField));
+        assert!(shown.contains(&VisualFamily::FractalBloom));
+        assert!(shown.contains(&VisualFamily::RecursiveTunnel));
     }
 
     #[test]
-    fn manual_fluid_style_selects_the_chromatic_splotch_wave() {
+    fn legacy_manual_styles_map_to_the_closest_abstract_preset() {
         assert_eq!(
             manual_family(VisualStyle::Fluid),
-            VisualFamily::ChromaticSplotchWave
+            VisualFamily::ColorSplotchWave
+        );
+        assert_eq!(
+            manual_family(VisualStyle::Waves),
+            VisualFamily::MultiLayerWaveField
+        );
+        assert_eq!(
+            manual_family(VisualStyle::Pulse),
+            VisualFamily::RingPulseSystem
+        );
+        assert_eq!(
+            manual_family(VisualStyle::Tunnel),
+            VisualFamily::RecursiveTunnel
+        );
+        assert_eq!(
+            manual_family(VisualStyle::Burst),
+            VisualFamily::FractalBloom
         );
     }
 
@@ -1181,21 +1100,30 @@ mod tests {
     }
 
     #[test]
-    fn clean_featured_scenes_reject_busy_modifiers() {
-        for family in [
-            VisualFamily::SpinningAlien,
-            VisualFamily::SpinningSkull,
-            VisualFamily::WatchingEye,
-            VisualFamily::ChromaticSplotchWave,
-            VisualFamily::TumblingCube,
-        ] {
+    fn abstract_presets_reject_geometry_destroying_modifiers() {
+        for family in ALL_PRESETS {
             assert!(modifier_compatible(family, ModifierKind::PaletteDrift));
             assert!(modifier_compatible(family, ModifierKind::BeatZoom));
             assert!(modifier_compatible(family, ModifierKind::ImpactBloom));
-            assert!(!modifier_compatible(family, ModifierKind::HighSparkle));
-            assert!(!modifier_compatible(family, ModifierKind::EchoTrails));
-            assert!(!modifier_compatible(family, ModifierKind::ChromaticSplit));
+            assert!(
+                !modifier_compatible(family, ModifierKind::EchoTrails)
+                    || matches!(
+                        family,
+                        VisualFamily::RecursiveTunnel
+                            | VisualFamily::RibbonFlow
+                            | VisualFamily::ContourField
+                            | VisualFamily::HelixSpiral
+                    )
+            );
         }
+        assert!(modifier_compatible(
+            VisualFamily::RibbonFlow,
+            ModifierKind::EchoTrails
+        ));
+        assert!(!modifier_compatible(
+            VisualFamily::FractalBloom,
+            ModifierKind::EchoTrails
+        ));
     }
 
     #[test]

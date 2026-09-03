@@ -190,7 +190,7 @@ export function ControlApp() {
         </div>
         <div className="preview-caption">
           <span>{runtime?.running ? "Preview paused to preserve performance" : "Live response activates in the output"}</span>
-          <strong>Auto · 28 illusions</strong>
+          <strong>Auto · 12 abstract presets</strong>
         </div>
       </section>
 
