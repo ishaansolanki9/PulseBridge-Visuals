@@ -11,8 +11,8 @@ The laptop window is a compact controller. The performance window is a borderles
 - A bounded 5–30 second lock-free PCM ring buffer held only in RAM
 - 48 kHz analysis with RMS, sub/bass/mid/high energy, spectral flux, onset strength, beat pulse, rolling normalization, energy trends, and state hysteresis
 - Quiet, Flow, Groove, Build, Impact, Peak, and Breakdown musical behavior
-- Auto-only direction across 28 shuffled analytic illusions, with exactly one family outside a normalized transition and at most two compatible modifiers
-- Perspective techno lasers, a spinning alien head, kinetic Op Art bars, bulging checkerboards, wormholes, moiré interference, impossible grids, gravity lenses, chromatic mazes, and other motion-first illusion families
+- Auto-only direction across 32 analytic illusions, with readable hero scenes prioritized, exactly one family outside a normalized transition, and at most two compatible modifiers
+- A guaranteed early spinning alien plus a spinning skull, watching eye, morphing pyramid, tumbling cube, perspective techno lasers, kinetic Op Art, checkerboards, gravity lenses, chromatic mazes, and other shape-first illusions
 - Native MilkDrop-inspired frame feedback with liquid afterimages, audio-reactive zoom/warp, restrained chromatic drift, and an original spectral signal ribbon—implemented locally with no Winamp API or preset dependency
 - Adaptive and fixed palettes, Chill/Balanced/Wild profiles, opt-in flash levels, and advanced reaction controls
 - A non-fullscreen **Test connection** workflow with Audio only, Renderer only, Full startup, and Safe renderer reports; versioned JSON, readable copy, and durable unclean-exit reconstruction
@@ -86,7 +86,7 @@ cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
 
-Windows and macOS CI compile, lint, test, and build platform bundles. These jobs are compile/package checks, not real Rekordbox audio integration tests. Unit tests also cover diagnostic schema/recovery, cancellation, format conversion/resampling, explicit connection facts, scene normalization, modifier compatibility/envelopes/brightness caps, bounded feedback profiles, native-close stop routing, and WGSL validation.
+Windows and macOS CI compile, lint, test, and build platform bundles. These jobs are compile/package checks, not real Rekordbox audio integration tests. Unit tests also cover diagnostic schema/recovery, cancellation, format conversion/resampling, explicit connection facts, scene normalization, featured-scene cadence, modifier compatibility/envelopes/brightness caps, bounded feedback profiles, native-close stop routing, and WGSL validation.
 
 ## Repository map
 

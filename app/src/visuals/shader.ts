@@ -33,6 +33,12 @@ float hash21(vec2 point) {
   return fract(point.x * point.y);
 }
 
+vec2 rotate2(vec2 point, float angle) {
+  float cosine = cos(angle);
+  float sine = sin(angle);
+  return mat2(cosine, -sine, sine, cosine) * point;
+}
+
 float hash11(float value) {
   return fract(sin(value * 127.1 + u_styleB.z * 311.7) * 43758.5453);
 }
@@ -248,6 +254,101 @@ vec3 spinningAlienVisual(vec2 uv) {
     + paletteField(haloRadius * 0.24 - turn * 0.025) * halo * 0.18;
 }
 
+vec3 spinningSkullVisual(vec2 uv) {
+  float turn = u_time * (0.2 + u_visual.x * 0.12);
+  float facing = cos(turn);
+  float side = sin(turn);
+  vec2 tilted = rotate2(uv, sin(turn * 0.43) * 0.045);
+  float faceWidth = 0.55 + abs(facing) * 0.45;
+  vec2 face = vec2((tilted.x - side * 0.045) / faceWidth, tilted.y + 0.015);
+  float craniumDistance = length(vec2(face.x * 0.88, (face.y - 0.13) * 1.02));
+  float cranium = 1.0 - smoothstep(0.51, 0.56, craniumDistance);
+  float craniumEdge = exp(-abs(craniumDistance - 0.535) * 50.0);
+  float jawWidth = 0.27 - max(-face.y - 0.28, 0.0) * 0.2;
+  float jawDistance = max(abs(face.x) - jawWidth, abs(face.y + 0.31) - 0.18);
+  float jaw = 1.0 - smoothstep(0.0, 0.04, jawDistance);
+  float jawEdge = exp(-abs(jawDistance) * 52.0) * smoothstep(-0.48, -0.08, face.y);
+  vec2 leftPoint = face - vec2(-0.2 + side * 0.035, 0.1);
+  vec2 rightPoint = face - vec2(0.2 + side * 0.035, 0.1);
+  float leftSocket = (1.0 - smoothstep(0.115, 0.16, length(leftPoint * vec2(1.0, 1.42)))) * clamp(0.82 - side * 0.48, 0.18, 1.0);
+  float rightSocket = (1.0 - smoothstep(0.115, 0.16, length(rightPoint * vec2(1.0, 1.42)))) * clamp(0.82 + side * 0.48, 0.18, 1.0);
+  float nose = 1.0 - smoothstep(0.055, 0.095, abs(face.x - side * 0.016) + abs(face.y + 0.075) * 0.58);
+  float mouth = exp(-abs(face.y + 0.285) * 42.0) * jaw * (1.0 - smoothstep(0.14, 0.28, abs(face.x)));
+  float surface = max(cranium, jaw) * (1.0 - clamp((leftSocket + rightSocket) * 0.92 + nose * 0.82 + mouth * 0.72, 0.0, 0.95));
+  vec3 bone = paletteField(0.52 + face.y * 0.11 + side * 0.08);
+  vec3 rim = mix(u_colorC, u_colorD, side * 0.5 + 0.5);
+  return bone * surface * 0.25 + rim * (craniumEdge + jawEdge) * 0.48;
+}
+
+vec3 watchingEyeVisual(vec2 uv) {
+  float turn = u_time * (0.14 + u_visual.x * 0.08);
+  vec2 p = rotate2(uv, sin(turn * 0.37) * 0.08);
+  float normalizedX = p.x / 0.84;
+  float lidHeight = 0.31 * sqrt(max(0.0, 1.0 - normalizedX * normalizedX));
+  float horizontalGate = 1.0 - smoothstep(0.8, 0.86, abs(p.x));
+  float eye = (1.0 - smoothstep(lidHeight, lidHeight + 0.028, abs(p.y))) * horizontalGate;
+  float lid = exp(-abs(abs(p.y) - lidHeight) * 58.0) * horizontalGate;
+  vec2 gaze = vec2(sin(turn) * 0.16, sin(turn * 0.73) * 0.075);
+  float irisDistance = length(p - gaze);
+  float iris = (1.0 - smoothstep(0.205, 0.245, irisDistance)) * eye;
+  float pupil = (1.0 - smoothstep(0.065, 0.105, irisDistance)) * eye;
+  float highlight = exp(-length(p - gaze - vec2(-0.07, 0.075)) * 92.0) * iris;
+  return paletteField(0.08 + p.x * 0.08) * eye * (1.0 - iris * 0.68) * (1.0 - pupil * 0.9) * 0.2
+    + paletteField(0.62 + irisDistance * 0.4 - turn * 0.012) * iris * (1.0 - pupil) * 0.56
+    + mix(u_colorC, u_colorD, 0.5) * lid * 0.42
+    + vec3(0.72, 0.86, 1.0) * highlight * 0.3;
+}
+
+vec3 triangleWeights(vec2 point, vec2 first, vec2 second, vec2 third) {
+  vec2 edgeA = second - first;
+  vec2 edgeB = third - first;
+  vec2 local = point - first;
+  float denominator = edgeA.x * edgeB.y - edgeB.x * edgeA.y;
+  float secondWeight = (local.x * edgeB.y - edgeB.x * local.y) / denominator;
+  float thirdWeight = (edgeA.x * local.y - local.x * edgeA.y) / denominator;
+  return vec3(1.0 - secondWeight - thirdWeight, secondWeight, thirdWeight);
+}
+
+vec3 morphingPyramidVisual(vec2 uv) {
+  float turn = u_time * (0.16 + u_visual.x * 0.09);
+  vec2 p = rotate2(uv, sin(turn * 0.31) * 0.12);
+  vec2 apex = vec2(sin(turn) * 0.16, 0.68);
+  vec2 left = vec2(-0.72, -0.56 + sin(turn * 0.73) * 0.035);
+  vec2 right = vec2(0.72, -0.56 - sin(turn * 0.73) * 0.035);
+  vec3 weights = triangleWeights(p, apex, left, right);
+  float boundary = min(weights.x, min(weights.y, weights.z));
+  float pyramid = smoothstep(-0.02, 0.018, boundary);
+  float outerEdge = exp(-abs(boundary) * 48.0) * pyramid;
+  float innerScale = 0.42 + sin(turn * 0.62) * 0.045;
+  vec3 innerWeights = triangleWeights(p, apex * innerScale + vec2(0.0, -0.03), left * innerScale + vec2(0.0, -0.03), right * innerScale + vec2(0.0, -0.03));
+  float innerBoundary = min(innerWeights.x, min(innerWeights.y, innerWeights.z));
+  float hollow = smoothstep(-0.02, 0.02, innerBoundary);
+  float sideMix = smoothstep(-0.06, 0.06, p.x - apex.x * 0.35);
+  vec3 face = mix(u_colorB, u_colorC, sideMix);
+  face = mix(face, u_colorD, (1.0 - smoothstep(-0.48, -0.16, p.y)) * 0.55);
+  return face * pyramid * (1.0 - hollow * 0.78) * 0.4
+    + paletteField(0.72 + turn * 0.01) * outerEdge * 0.42
+    + paletteField(0.24 - turn * 0.008) * exp(-abs(innerBoundary) * 52.0) * pyramid * 0.24;
+}
+
+vec3 tumblingCubeVisual(vec2 uv) {
+  float turn = u_time * (0.13 + u_visual.x * 0.08);
+  vec2 p = rotate2(uv, turn * 0.24 + sin(turn * 0.4) * 0.08);
+  float size = 0.56;
+  float hexField = max(abs(p.y), abs(p.x) * 0.866 + abs(p.y) * 0.5);
+  float cube = 1.0 - smoothstep(size, size + 0.035, hexField);
+  float upperFace = smoothstep(-0.025, 0.025, p.y - abs(p.x) * 0.575);
+  float rightFace = smoothstep(-0.025, 0.025, p.x);
+  vec3 face = mix(u_colorB, u_colorC, rightFace);
+  face = mix(face, u_colorD, upperFace * 0.82);
+  float outerEdge = exp(-abs(hexField - size) * 48.0);
+  float upperSeam = exp(-abs(p.x) * 72.0) * smoothstep(-0.02, 0.16, p.y);
+  float lowerSeam = exp(-abs(p.y + abs(p.x) * 0.575) * 68.0) * (1.0 - smoothstep(-0.04, 0.08, p.y));
+  return face * cube * 0.32
+    + paletteField(0.3 + p.y * 0.14 + turn * 0.01) * outerEdge * 0.48
+    + paletteField(0.78 - p.x * 0.1) * (upperSeam + lowerSeam) * cube * 0.2;
+}
+
 vec3 kineticBarsVisual(vec2 uv) {
   float turn = u_time * (0.28 + u_visual.x * 0.2);
   float broadBend = sin(uv.y * 3.2 + turn * 0.62) * 0.19;
@@ -289,6 +390,10 @@ vec3 visualFamily(int id, vec2 uv) {
   if (id == 9) return spinningAlienVisual(uv);
   if (id == 10) return kineticBarsVisual(uv);
   if (id == 11) return bulgingCheckerVisual(uv);
+  if (id == 12) return spinningSkullVisual(uv);
+  if (id == 13) return watchingEyeVisual(uv);
+  if (id == 14) return morphingPyramidVisual(uv);
+  if (id == 15) return tumblingCubeVisual(uv);
   return technoGridVisual(uv);
 }
 
@@ -340,10 +445,6 @@ void main() {
   float sparkleSeed = hash21(sparkleCell);
   float sparkleMask = step(0.985 - u_music.w * 0.02 - overdrive * 0.028, sparkleSeed) * pow(max(0.0, sin(u_time * (8.0 + overdrive * 8.0) + sparkleSeed * TAU)), 10.0);
   color += paletteField(sparkleSeed) * sparkleMask * sparkleDrive * (0.08 + u_music.w * 0.22 + overdrive * 0.18);
-  float trails = modifierStrength(4.0);
-  float trailsDrive = max(trails, overdrive * (0.12 + u_music.y * 0.52 + u_pulse.y * 0.3));
-  float trailBand = exp(-abs(sin((uv.x - uv.y) * (5.0 + overdrive * 3.0) - u_time * (1.4 + overdrive * 2.8))) * (8.0 - overdrive * 2.0));
-  color += paletteField(uv.x * 0.1 - u_time * (0.025 + overdrive * 0.08)) * trailBand * trailsDrive * (0.055 + overdrive * 0.12);
   float chromatic = modifierStrength(6.0);
   float chromaticDrive = max(chromatic, overdrive * (0.18 + u_pulse.z * 0.7 + u_music.w * 0.3));
   float edge = min(0.28, length(fwidth(color)));

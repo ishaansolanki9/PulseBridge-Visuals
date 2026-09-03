@@ -43,9 +43,13 @@ pub enum VisualFamily {
     EventHorizon = 25,
     KineticBars = 26,
     BulgingChecker = 27,
+    SpinningSkull = 28,
+    WatchingEye = 29,
+    MorphingPyramid = 30,
+    TumblingCube = 31,
 }
 
-const ALL_ILLUSIONS: [VisualFamily; 28] = [
+const ALL_ILLUSIONS: [VisualFamily; 32] = [
     VisualFamily::TechnoLaserGrid,
     VisualFamily::MoireRings,
     VisualFamily::InfiniteChecker,
@@ -74,6 +78,35 @@ const ALL_ILLUSIONS: [VisualFamily; 28] = [
     VisualFamily::EventHorizon,
     VisualFamily::KineticBars,
     VisualFamily::BulgingChecker,
+    VisualFamily::SpinningSkull,
+    VisualFamily::WatchingEye,
+    VisualFamily::MorphingPyramid,
+    VisualFamily::TumblingCube,
+];
+
+const READABLE_ILLUSIONS: [VisualFamily; 15] = [
+    VisualFamily::SpinningAlien,
+    VisualFamily::SpinningSkull,
+    VisualFamily::WatchingEye,
+    VisualFamily::MorphingPyramid,
+    VisualFamily::TumblingCube,
+    VisualFamily::InfiniteChecker,
+    VisualFamily::ChromaticMaze,
+    VisualFamily::GlassOrbit,
+    VisualFamily::ImpossibleCubes,
+    VisualFamily::GravityLens,
+    VisualFamily::LiquidCircuit,
+    VisualFamily::DiamondDrift,
+    VisualFamily::EventHorizon,
+    VisualFamily::BulgingChecker,
+    VisualFamily::TechnoLaserGrid,
+];
+
+const FEATURED_ILLUSIONS: [VisualFamily; 4] = [
+    VisualFamily::SpinningAlien,
+    VisualFamily::SpinningSkull,
+    VisualFamily::WatchingEye,
+    VisualFamily::MorphingPyramid,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -444,8 +477,16 @@ impl SceneDirector {
         plan.normalized()
     }
 
-    fn choose_primary(&self, phrase: PhraseKind, key: u64) -> VisualFamily {
-        let candidates = candidates_for_phrase(phrase);
+    fn choose_primary(&self, _phrase: PhraseKind, key: u64) -> VisualFamily {
+        if let Some(featured) = featured_for_auto_shuffle(self.auto_shuffle_counter) {
+            return featured;
+        }
+        let candidates: &[VisualFamily] =
+            if self.auto_shuffle_counter > 0 && self.auto_shuffle_counter.is_multiple_of(6) {
+                &ALL_ILLUSIONS
+            } else {
+                &READABLE_ILLUSIONS
+            };
         let start = mix_seed(self.session_seed, key) as usize % candidates.len();
         for offset in 0..candidates.len() {
             let candidate = candidates[(start + offset) % candidates.len()];
@@ -592,8 +633,11 @@ impl SceneDirector {
     }
 }
 
-fn candidates_for_phrase(_kind: PhraseKind) -> &'static [VisualFamily] {
-    &ALL_ILLUSIONS
+fn featured_for_auto_shuffle(shuffle: u64) -> Option<VisualFamily> {
+    if shuffle == 0 || shuffle.is_multiple_of(2) {
+        return None;
+    }
+    Some(FEATURED_ILLUSIONS[((shuffle - 1) / 2) as usize % FEATURED_ILLUSIONS.len()])
 }
 
 fn modifier_for_phrase(phrase: PhraseKind, key: u64) -> ModifierKind {
@@ -629,6 +673,19 @@ fn modifier_for_phrase(phrase: PhraseKind, key: u64) -> ModifierKind {
 }
 
 fn modifier_compatible(base: VisualFamily, modifier: ModifierKind) -> bool {
+    if matches!(
+        base,
+        VisualFamily::SpinningAlien
+            | VisualFamily::SpinningSkull
+            | VisualFamily::WatchingEye
+            | VisualFamily::MorphingPyramid
+            | VisualFamily::TumblingCube
+    ) {
+        return matches!(
+            modifier,
+            ModifierKind::PaletteDrift | ModifierKind::BeatZoom | ModifierKind::ImpactBloom
+        );
+    }
     match modifier {
         ModifierKind::MirrorFold => !matches!(
             base,
@@ -652,19 +709,19 @@ fn budgets_for(
     energy: f32,
 ) -> (f32, f32, f32, f32) {
     let (profile_motion, profile_detail, profile_brightness) = match intensity {
-        IntensityProfile::Chill => (0.76, 0.55, 0.72),
-        IntensityProfile::Balanced => (0.99, 0.72, 0.84),
-        IntensityProfile::Wild => (1.35, 0.94, 0.94),
+        IntensityProfile::Chill => (0.72, 0.48, 0.68),
+        IntensityProfile::Balanced => (0.92, 0.56, 0.78),
+        IntensityProfile::Wild => (1.18, 0.72, 0.86),
     };
     let (motion, detail, density, brightness) = match phrase {
-        PhraseKind::Intro | PhraseKind::Outro => (0.58, 0.48, 0.36, 0.65),
-        PhraseKind::Verse => (0.78, 0.62, 0.55, 0.76),
-        PhraseKind::Up => (0.98, 0.72, 0.68, 0.84),
-        PhraseKind::Chorus => (1.1, 0.82, 0.78, 0.94),
-        PhraseKind::Down => (0.52, 0.42, 0.32, 0.58),
-        PhraseKind::Bridge => (0.76, 0.68, 0.5, 0.72),
-        PhraseKind::Fill => (0.92, 0.7, 0.58, 0.82),
-        PhraseKind::Unknown => (0.68, 0.55, 0.45, 0.7),
+        PhraseKind::Intro | PhraseKind::Outro => (0.58, 0.42, 0.3, 0.62),
+        PhraseKind::Verse => (0.76, 0.52, 0.42, 0.72),
+        PhraseKind::Up => (0.94, 0.6, 0.5, 0.8),
+        PhraseKind::Chorus => (1.04, 0.68, 0.58, 0.88),
+        PhraseKind::Down => (0.5, 0.36, 0.26, 0.56),
+        PhraseKind::Bridge => (0.72, 0.56, 0.4, 0.68),
+        PhraseKind::Fill => (0.88, 0.58, 0.48, 0.78),
+        PhraseKind::Unknown => (0.64, 0.46, 0.34, 0.66),
     };
     (
         motion * profile_motion * (0.86 + energy * 0.28),
@@ -968,7 +1025,7 @@ mod tests {
             reactivity: 1.0,
             ..quiet
         };
-        let _ = director.update(
+        let first_feature = director.update(
             15.1,
             now,
             boundary,
@@ -977,6 +1034,11 @@ mod tests {
             IntensityProfile::Balanced,
         );
         assert_eq!(director.auto_shuffle_counter, 1);
+        assert!(
+            first_feature.primary == VisualFamily::SpinningAlien
+                || first_feature.secondary == Some(VisualFamily::SpinningAlien),
+            "the first automatic shuffle must surface the alien"
+        );
 
         let mut fallback = SceneDirector::new(18);
         let _ = fallback.update(
@@ -999,17 +1061,105 @@ mod tests {
     }
 
     #[test]
-    fn auto_library_contains_twenty_eight_distinct_illusions_without_a_spiral() {
+    fn auto_library_contains_thirty_two_distinct_illusions_without_a_spiral() {
         let distinct = ALL_ILLUSIONS
             .iter()
             .copied()
             .collect::<std::collections::HashSet<_>>();
-        assert_eq!(ALL_ILLUSIONS.len(), 28);
+        assert_eq!(ALL_ILLUSIONS.len(), 32);
         assert_eq!(distinct.len(), ALL_ILLUSIONS.len());
         assert!(ALL_ILLUSIONS.contains(&VisualFamily::TechnoLaserGrid));
         assert!(ALL_ILLUSIONS.contains(&VisualFamily::SpinningAlien));
         assert!(ALL_ILLUSIONS.contains(&VisualFamily::KineticBars));
         assert!(ALL_ILLUSIONS.contains(&VisualFamily::BulgingChecker));
+        assert!(ALL_ILLUSIONS.contains(&VisualFamily::SpinningSkull));
+        assert!(ALL_ILLUSIONS.contains(&VisualFamily::WatchingEye));
+        assert!(ALL_ILLUSIONS.contains(&VisualFamily::MorphingPyramid));
+        assert!(ALL_ILLUSIONS.contains(&VisualFamily::TumblingCube));
+        assert!(
+            READABLE_ILLUSIONS
+                .iter()
+                .all(|family| ALL_ILLUSIONS.contains(family)),
+            "the prioritized library must be a subset of the full library"
+        );
+    }
+
+    #[test]
+    fn featured_rotation_starts_with_alien_and_repeats_readable_anchors() {
+        assert_eq!(featured_for_auto_shuffle(0), None);
+        assert_eq!(
+            featured_for_auto_shuffle(1),
+            Some(VisualFamily::SpinningAlien)
+        );
+        assert_eq!(featured_for_auto_shuffle(2), None);
+        assert_eq!(
+            featured_for_auto_shuffle(3),
+            Some(VisualFamily::SpinningSkull)
+        );
+        assert_eq!(
+            featured_for_auto_shuffle(5),
+            Some(VisualFamily::WatchingEye)
+        );
+        assert_eq!(
+            featured_for_auto_shuffle(7),
+            Some(VisualFamily::MorphingPyramid)
+        );
+        assert_eq!(
+            featured_for_auto_shuffle(9),
+            Some(VisualFamily::SpinningAlien)
+        );
+    }
+
+    #[test]
+    fn four_minute_quiet_fallback_surfaces_every_featured_subject() {
+        let now = Instant::now();
+        let phrase = context(now, PhraseKind::Verse, 0);
+        let frame = VisualInputFrame {
+            state: MusicState::Flow,
+            energy: 0.28,
+            reactivity: 1.0,
+            ..Default::default()
+        };
+        let mut director = SceneDirector::new(81);
+        let mut shown = std::collections::HashSet::new();
+        let initial = director.update(
+            0.0,
+            now,
+            frame,
+            &phrase,
+            VisualStyle::Auto,
+            IntensityProfile::Chill,
+        );
+        shown.insert(initial.primary);
+
+        for shuffle in 1..=7 {
+            let plan = director.update(
+                shuffle as f32 * 28.9,
+                now,
+                frame,
+                &phrase,
+                VisualStyle::Auto,
+                IntensityProfile::Chill,
+            );
+            shown.insert(plan.primary);
+            if let Some(secondary) = plan.secondary {
+                shown.insert(secondary);
+            }
+            let settled = director.update(
+                shuffle as f32 * 28.9 + 4.0,
+                now,
+                frame,
+                &phrase,
+                VisualStyle::Auto,
+                IntensityProfile::Chill,
+            );
+            shown.insert(settled.primary);
+        }
+
+        assert!(shown.contains(&VisualFamily::SpinningAlien));
+        assert!(shown.contains(&VisualFamily::SpinningSkull));
+        assert!(shown.contains(&VisualFamily::WatchingEye));
+        assert!(shown.contains(&VisualFamily::MorphingPyramid));
     }
 
     #[test]
@@ -1020,6 +1170,24 @@ mod tests {
         director.remember(repeated, None, 1);
         director.remember(repeated, None, 2);
         assert_ne!(director.choose_primary(PhraseKind::Intro, key), repeated);
+    }
+
+    #[test]
+    fn recognizable_scenes_reject_busy_modifiers() {
+        for family in [
+            VisualFamily::SpinningAlien,
+            VisualFamily::SpinningSkull,
+            VisualFamily::WatchingEye,
+            VisualFamily::MorphingPyramid,
+            VisualFamily::TumblingCube,
+        ] {
+            assert!(modifier_compatible(family, ModifierKind::PaletteDrift));
+            assert!(modifier_compatible(family, ModifierKind::BeatZoom));
+            assert!(modifier_compatible(family, ModifierKind::ImpactBloom));
+            assert!(!modifier_compatible(family, ModifierKind::HighSparkle));
+            assert!(!modifier_compatible(family, ModifierKind::EchoTrails));
+            assert!(!modifier_compatible(family, ModifierKind::ChromaticSplit));
+        }
     }
 
     #[test]

@@ -17,7 +17,7 @@ interface SmoothedState {
   colors: number[][];
 }
 
-const ambientPreviewFamilies = [8, 9, 10, 11] as const;
+const ambientPreviewFamilies = [9, 12, 13, 14, 15] as const;
 
 export function PerformanceCanvas({ settings, className = "", paused = false }: PerformanceCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -129,7 +129,7 @@ export function PerformanceCanvas({ settings, className = "", paused = false }: 
       gl.uniform4f(uniforms.styleA, smoothed.primaryFamily, smoothed.secondaryFamily, 1 - secondaryMix, secondaryMix);
       gl.uniform4f(uniforms.styleB, 0.82 + drive * 0.18, drive, 0.37, 0);
       gl.uniform4f(uniforms.effects, 0.12, 0, currentSettings.colorChange * (0.8 + drive * 1.7), drive);
-      gl.uniform4f(uniforms.scene, intensities[0], intensities[1], intensities[1] * 0.62, intensities[2] * 0.82);
+      gl.uniform4f(uniforms.scene, intensities[0], intensities[1] * 0.8, intensities[1] * 0.42, intensities[2] * 0.82);
       gl.uniform4f(uniforms.modifiers, 0, currentSettings.colorChange * 0.28, -1, 0);
       gl.uniform4f(uniforms.reactive, 0, 0, 0, 0);
       gl.drawArrays(gl.TRIANGLES, 0, 3);

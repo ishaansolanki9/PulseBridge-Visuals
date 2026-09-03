@@ -335,6 +335,139 @@ fn spinning_alien(uv: vec2<f32>, time: f32) -> vec3<f32> {
         + palette_field(halo_radius * 0.24 - turn * 0.025) * halo * 0.18;
 }
 
+fn spinning_skull(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let turn = phase_time(time) * 0.27;
+    let facing = cos(turn);
+    let side = sin(turn);
+    let tilted = rotate2(uv, sin(turn * 0.43) * 0.045);
+    let face_width = 0.55 + abs(facing) * 0.45;
+    let face = vec2<f32>((tilted.x - side * 0.045) / face_width, tilted.y + 0.015);
+
+    let cranium_distance = length(vec2<f32>(face.x * 0.88, (face.y - 0.13) * 1.02));
+    let cranium = 1.0 - smoothstep(0.51, 0.56, cranium_distance);
+    let cranium_edge = glow(cranium_distance - 0.535, 50.0);
+    let jaw_width = 0.27 - max(-face.y - 0.28, 0.0) * 0.2;
+    let jaw_distance = max(abs(face.x) - jaw_width, abs(face.y + 0.31) - 0.18);
+    let jaw = 1.0 - smoothstep(0.0, 0.04, jaw_distance);
+    let jaw_edge = glow(jaw_distance, 52.0) * smoothstep(-0.48, -0.08, face.y);
+    let silhouette = max(cranium, jaw);
+
+    let left_socket_point = face - vec2<f32>(-0.2 + side * 0.035, 0.1);
+    let right_socket_point = face - vec2<f32>(0.2 + side * 0.035, 0.1);
+    let left_socket = (1.0 - smoothstep(0.115, 0.16, length(left_socket_point * vec2<f32>(1.0, 1.42))))
+        * clamp(0.82 - side * 0.48, 0.18, 1.0);
+    let right_socket = (1.0 - smoothstep(0.115, 0.16, length(right_socket_point * vec2<f32>(1.0, 1.42))))
+        * clamp(0.82 + side * 0.48, 0.18, 1.0);
+    let sockets = clamp(left_socket + right_socket, 0.0, 1.0);
+    let nose = 1.0 - smoothstep(
+        0.055,
+        0.095,
+        abs(face.x - side * 0.016) + abs(face.y + 0.075) * 0.58,
+    );
+    let mouth = glow(face.y + 0.285, 42.0)
+        * jaw
+        * (1.0 - smoothstep(0.14, 0.28, abs(face.x)));
+    let surface = silhouette
+        * (1.0 - clamp(sockets * 0.92 + nose * 0.82 + mouth * 0.72, 0.0, 0.95));
+    let bone_color = palette_field(0.52 + face.y * 0.11 + side * 0.08);
+    let rim_color = mix(params.color_c.rgb, params.color_d.rgb, side * 0.5 + 0.5);
+    return bone_color * surface * (0.23 + params.style_b.y * 0.08)
+        + rim_color * (cranium_edge + jaw_edge) * 0.48
+        + params.color_d.rgb * (left_socket + right_socket) * 0.035;
+}
+
+fn watching_eye(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let turn = phase_time(time) * 0.19;
+    let p = rotate2(uv, sin(turn * 0.37) * 0.08);
+    let normalized_x = p.x / 0.84;
+    let lid_height = 0.31 * sqrt(max(0.0, 1.0 - normalized_x * normalized_x));
+    let horizontal_gate = 1.0 - smoothstep(0.8, 0.86, abs(p.x));
+    let eye = (1.0 - smoothstep(lid_height, lid_height + 0.028, abs(p.y)))
+        * horizontal_gate;
+    let lid = glow(abs(p.y) - lid_height, 58.0) * horizontal_gate;
+    let gaze = vec2<f32>(
+        sin(turn + params.reactive.y * 0.8) * 0.16,
+        sin(turn * 0.73 - params.reactive.z * 0.6) * 0.075,
+    );
+    let iris_distance = length(p - gaze);
+    let iris = (1.0 - smoothstep(0.205, 0.245, iris_distance)) * eye;
+    let pupil = (1.0 - smoothstep(0.065, 0.105, iris_distance)) * eye;
+    let highlight = glow(length(p - gaze - vec2<f32>(-0.07, 0.075)), 92.0) * iris;
+    let sclera = palette_field(0.08 + p.x * 0.08 + turn * 0.006);
+    let iris_color = palette_field(0.62 + iris_distance * 0.4 - turn * 0.012);
+    return sclera * eye * (1.0 - iris * 0.68) * (1.0 - pupil * 0.9) * 0.2
+        + iris_color * iris * (1.0 - pupil) * 0.56
+        + mix(params.color_c.rgb, params.color_d.rgb, 0.5) * lid * 0.42
+        + vec3<f32>(0.72, 0.86, 1.0) * highlight * 0.3;
+}
+
+fn triangle_weights(
+    point: vec2<f32>,
+    first: vec2<f32>,
+    second: vec2<f32>,
+    third: vec2<f32>,
+) -> vec3<f32> {
+    let edge_a = second - first;
+    let edge_b = third - first;
+    let local = point - first;
+    let denominator = edge_a.x * edge_b.y - edge_b.x * edge_a.y;
+    let second_weight = (local.x * edge_b.y - edge_b.x * local.y) / denominator;
+    let third_weight = (edge_a.x * local.y - local.x * edge_a.y) / denominator;
+    return vec3<f32>(1.0 - second_weight - third_weight, second_weight, third_weight);
+}
+
+fn morphing_pyramid(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let turn = phase_time(time) * 0.21;
+    let p = rotate2(uv, sin(turn * 0.31) * 0.12);
+    let apex = vec2<f32>(sin(turn) * 0.16, 0.68 + params.reactive.x * 0.045);
+    let left = vec2<f32>(-0.72, -0.56 + sin(turn * 0.73) * 0.035);
+    let right = vec2<f32>(0.72, -0.56 - sin(turn * 0.73) * 0.035);
+    let weights = triangle_weights(p, apex, left, right);
+    let boundary = min(weights.x, min(weights.y, weights.z));
+    let pyramid = smoothstep(-0.02, 0.018, boundary);
+    let outer_edge = glow(boundary, 48.0) * pyramid;
+
+    let inner_scale = 0.42 + sin(turn * 0.62) * 0.045;
+    let inner_weights = triangle_weights(
+        p,
+        apex * inner_scale + vec2<f32>(0.0, -0.03),
+        left * inner_scale + vec2<f32>(0.0, -0.03),
+        right * inner_scale + vec2<f32>(0.0, -0.03),
+    );
+    let inner_boundary = min(inner_weights.x, min(inner_weights.y, inner_weights.z));
+    let hollow = smoothstep(-0.02, 0.02, inner_boundary);
+    let hollow_edge = glow(inner_boundary, 52.0) * pyramid;
+
+    let side_mix = smoothstep(-0.06, 0.06, p.x - apex.x * 0.35);
+    var face_color = mix(params.color_b.rgb, params.color_c.rgb, side_mix);
+    let base_face = 1.0 - smoothstep(-0.48, -0.16, p.y);
+    face_color = mix(face_color, params.color_d.rgb, base_face * 0.55);
+    return face_color * pyramid * (1.0 - hollow * 0.78) * 0.4
+        + palette_field(0.72 + turn * 0.01) * outer_edge * 0.42
+        + palette_field(0.24 - turn * 0.008) * hollow_edge * 0.24;
+}
+
+fn tumbling_cube(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let turn = phase_time(time) * 0.18;
+    let p = rotate2(uv, turn * 0.24 + sin(turn * 0.4) * 0.08);
+    let size = 0.56 + params.reactive.x * 0.035;
+    let hex_field = max(abs(p.y), abs(p.x) * 0.866 + abs(p.y) * 0.5);
+    let cube = 1.0 - smoothstep(size, size + 0.035, hex_field);
+    let upper_face = smoothstep(-0.025, 0.025, p.y - abs(p.x) * 0.575);
+    let right_face = smoothstep(-0.025, 0.025, p.x);
+    var face_color = mix(params.color_b.rgb, params.color_c.rgb, right_face);
+    face_color = mix(face_color, params.color_d.rgb, upper_face * 0.82);
+
+    let outer_edge = glow(hex_field - size, 48.0);
+    let upper_seam = glow(p.x, 72.0) * smoothstep(-0.02, 0.16, p.y);
+    let lower_seam = glow(p.y + abs(p.x) * 0.575, 68.0)
+        * (1.0 - smoothstep(-0.04, 0.08, p.y));
+    let seams = (upper_seam + lower_seam) * cube;
+    return face_color * cube * (0.3 + params.style_b.y * 0.08)
+        + palette_field(0.3 + p.y * 0.14 + turn * 0.01) * outer_edge * 0.48
+        + palette_field(0.78 - p.x * 0.1) * seams * 0.2;
+}
+
 fn prism_vortex(uv: vec2<f32>, time: f32) -> vec3<f32> {
     let radius = length(uv);
     let angle = atan2(uv.y, uv.x);
@@ -470,8 +603,23 @@ fn visual_family(id: u32, uv: vec2<f32>, time: f32) -> vec3<f32> {
         case 25u: { return event_horizon(uv, time); }
         case 26u: { return kinetic_bars(uv, time); }
         case 27u: { return bulging_checker(uv, time); }
+        case 28u: { return spinning_skull(uv, time); }
+        case 29u: { return watching_eye(uv, time); }
+        case 30u: { return morphing_pyramid(uv, time); }
+        case 31u: { return tumbling_cube(uv, time); }
         default: { return techno_laser_grid(uv, time); }
     }
+}
+
+fn family_weight(id: u32) -> f32 {
+    var weight = 0.0;
+    if u32(round(params.style_a.x)) == id {
+        weight += params.style_a.z;
+    }
+    if params.style_a.w > 0.001 && u32(round(params.style_a.y)) == id {
+        weight += params.style_a.w;
+    }
+    return clamp(weight, 0.0, 1.0);
 }
 
 fn feedback_frame(screen_uv: vec2<f32>, time: f32) -> vec3<f32> {
@@ -534,12 +682,14 @@ fn spectral_signal_ribbon(uv: vec2<f32>, time: f32) -> vec3<f32> {
     ) * main_trace;
     let horizontal_gate = smoothstep(-1.32, -1.08, uv.x)
         * (1.0 - smoothstep(1.08, 1.32, uv.x));
-    let strength = (0.025 + drive * 0.055 + trails * 0.12)
+    let signal_scene = clamp(family_weight(18u) + family_weight(29u) * 0.35, 0.0, 1.0);
+    let strength = (0.012 + drive * 0.035 + trails * 0.04)
         * (0.45 + params.music.z * 0.32 + params.music.w * 0.23);
     return palette_field(uv.x * 0.14 + phase * 0.012)
         * (main_trace + after_trace * 0.24 + sample_lights * 0.38)
         * horizontal_gate
-        * strength;
+        * strength
+        * signal_scene;
 }
 
 @fragment
@@ -620,17 +770,17 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     color += palette_field(response_angle / TAU + response_radius * 0.42)
         * bass_front
         * bass_hit
-        * (0.22 + drive * 0.32);
+        * (0.12 + drive * 0.18);
     let mid_ribs = ridge(
-        (uv.x + uv.y * 0.74) * (7.0 + params.music.z * 7.0)
+        (uv.x + uv.y * 0.74) * (5.0 + params.music.z * 4.0)
             + phase_time(time) * 0.9,
         10.0,
     );
     color += palette_field(uv.x * 0.21 - uv.y * 0.13 + params.music.z * 0.24)
         * mid_ribs
         * mid_motion
-        * (0.08 + params.music.z * 0.13);
-    let shard_count = 16.0 + floor(params.music.w * 14.0);
+        * (0.025 + params.music.z * 0.06);
+    let shard_count = 8.0 + floor(params.music.w * 8.0);
     let high_ray = ridge(
         response_angle * shard_count
             + sin(response_radius * 7.0 - phase_time(time)) * 1.15
@@ -649,7 +799,7 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     color += palette_field(response_angle / TAU * 4.0 + response_radius * 0.3)
         * high_shard
         * high_hit
-        * (0.24 + drive * 0.24);
+        * (0.07 + drive * 0.12);
     let spectral_tint = palette_field(
         response_angle / TAU
             + params.music.y * 0.12
@@ -657,10 +807,10 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
             + params.music.w * 0.46,
     );
     let color_reaction = clamp(
-        bass_hit * 0.16
-            + mid_motion * 0.12
-            + high_hit * 0.27
-            + params.pulse.z * 0.18,
+        bass_hit * 0.1
+            + mid_motion * 0.08
+            + high_hit * 0.18
+            + params.pulse.z * 0.12,
         0.0,
         0.55,
     );

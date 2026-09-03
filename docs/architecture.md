@@ -15,7 +15,7 @@ Rekordbox process / supported system output / selected macOS input
                     |                                      |
                     +------------> SceneDirector <---------+
                                          |
-                 one of 28 illusions + optional crossfade + 0–2 modifiers
+                 one of 32 illusions + optional crossfade + 0–2 modifiers
                                          |
                               native wgpu renderer
                                          |
@@ -28,7 +28,9 @@ React control webview ── settings/status only
 
 The audio worker writes only converted mono samples to a fixed-capacity queue. The analysis worker drains current audio, discards excessive backlog, maintains bounded feature history, and replaces one snapshot. The renderer never waits for audio and never queues visual events. Missing audio fades reactivity over 300 ms–2 s and then continues quiet ambient motion.
 
-Renderer time is monotonic seconds since performance start, not frame count. User parameters and musical parameters use asymmetric attack/release envelopes. A dedicated audio-drive envelope converts energy and spectral events into a proportional motion/color dial. The `SceneDirector` keeps macro identity stable long enough to read, shuffles across all 28 illusions on a profile-dependent cadence, emits one family except for normalized old/new crossfades, and schedules at most two compatible modifier envelopes.
+Renderer time is monotonic seconds since performance start, not frame count. User parameters and musical parameters use asymmetric attack/release envelopes. A dedicated audio-drive envelope converts energy and spectral events into a proportional motion/color dial. The `SceneDirector` keeps macro identity stable long enough to read, prioritizes a curated shape-first subset of the 32-family library, periodically samples the full library, emits one family except for normalized old/new crossfades, and schedules at most two compatible modifier envelopes.
+
+Odd-numbered automatic shuffles are reserved for a four-scene featured rotation: Spinning Alien, Spinning Skull, Watching Eye, and Morphing Pyramid. The first automatic shuffle is always Spinning Alien. The shuffle's existing musical trigger and bounded quiet fallback therefore guarantee that the alien appears early even when no phrase metadata is available.
 
 The production renderer owns two sampleable `wgpu` render targets. It renders into one while sampling the other, presents the completed target through the existing linear blitter, then swaps their roles. This ping-pong loop provides bounded previous-frame feedback with no CPU frame copies and no additional visual-event queue. Both targets are cleared before first use and recreated together when the render resolution changes.
 

@@ -983,15 +983,15 @@ fn feedback_values(
     let mid_motion = mid_motion.clamp(0.0, 1.0);
     let high_hit = high_hit.clamp(0.0, 1.0);
     let (base_persistence, zoom, warp, chroma) = match intensity {
-        super::IntensityProfile::Chill => (0.08, 0.00055, 0.00032, 0.0015),
-        super::IntensityProfile::Balanced => (0.12, 0.0008, 0.00048, 0.0025),
-        super::IntensityProfile::Wild => (0.16, 0.00105, 0.0007, 0.0038),
+        super::IntensityProfile::Chill => (0.025, 0.0004, 0.00024, 0.001),
+        super::IntensityProfile::Balanced => (0.045, 0.00058, 0.00034, 0.0018),
+        super::IntensityProfile::Wild => (0.07, 0.00078, 0.0005, 0.0028),
     };
     [
-        (base_persistence + echo_trails * 0.4 + drive * 0.035).clamp(0.0, 0.62),
-        (zoom + echo_trails * 0.00175 + bass_hit * 0.0007).clamp(0.0, 0.004),
-        (warp + echo_trails * 0.0017 + mid_motion * 0.0012).clamp(0.0, 0.004),
-        (chroma + echo_trails * 0.007 + high_hit * 0.0045).clamp(0.0, 0.016),
+        (base_persistence + echo_trails * 0.32 + drive * 0.02).clamp(0.0, 0.46),
+        (zoom + echo_trails * 0.00125 + bass_hit * 0.0005).clamp(0.0, 0.003),
+        (warp + echo_trails * 0.0012 + mid_motion * 0.0008).clamp(0.0, 0.003),
+        (chroma + echo_trails * 0.005 + high_hit * 0.0032).clamp(0.0, 0.012),
     ]
 }
 
@@ -1357,9 +1357,9 @@ mod tests {
 
         assert!(chill[0] < balanced[0]);
         assert!(balanced[0] < wild_echo[0]);
-        assert!(wild_echo[0] <= 0.62);
-        assert!(wild_echo[1] <= 0.004);
-        assert!(wild_echo[2] <= 0.004);
-        assert!(wild_echo[3] <= 0.016);
+        assert!(wild_echo[0] <= 0.46);
+        assert!(wild_echo[1] <= 0.003);
+        assert!(wild_echo[2] <= 0.003);
+        assert!(wild_echo[3] <= 0.012);
     }
 }
