@@ -82,13 +82,31 @@ vec3 paletteField(float value) {
   return mix(u_colorD, u_colorA, local);
 }
 
-vec3 fluidVisual(vec2 uv) {
-  float warpA = fbm(uv * (1.15 + u_scene.y * 0.5) + vec2(u_time * 0.075, -u_time * 0.052));
-  float warpB = fbm(uv * 1.7 + vec2(-u_time * 0.043, u_time * 0.064) + warpA * 1.8);
-  vec2 warped = uv + vec2(warpA - 0.5, warpB - 0.5) * (0.35 + u_music.y * 0.45);
-  float field = fbm(warped * (1.05 + u_scene.z * 0.55) + u_time * u_visual.x * 0.07);
-  vec3 color = paletteField(field + u_time * 0.018 * u_effects.z);
-  return color * (0.08 + smoothstep(0.3, 0.88, field) * (0.34 + u_music.x * 0.5));
+vec3 chromaticSplotchWaveVisual(vec2 uv) {
+  float energy = clamp(u_music.x, 0.0, 1.0);
+  float bass = clamp(u_music.y, 0.0, 1.0);
+  float beat = clamp(u_pulse.y, 0.0, 1.0);
+  float bassHit = clamp(u_reactive.x, 0.0, 1.0);
+  float impact = clamp(u_effects.y, 0.0, 1.0);
+  float rhythmicShake = sin(u_pulse.x * TAU) * (beat * 0.068 + bassHit * 0.052 + impact * 0.035);
+  float continuousShake = sin(u_time * (3.2 + energy * 4.4)) * energy * (0.02 + u_styleB.y * 0.038);
+  float verticalShake = clamp(rhythmicShake + continuousShake, -0.13, 0.13);
+  vec2 point = uv;
+  point.y += verticalShake;
+  point.y += sin(point.x * 1.45 + u_time * (0.12 + u_visual.x * 0.7)) * (0.075 + bass * 0.12);
+  float flow = u_time * (0.035 + u_visual.x * 0.075);
+  float warpA = fbm(point * (1.02 + u_scene.y * 0.22) + vec2(flow, -flow * 0.68));
+  float warpB = fbm(point * 1.58 + vec2(-flow * 0.74, flow * 0.92) + warpA * 1.72);
+  vec2 warped = point + vec2(warpA - 0.5, warpB - 0.5) * (0.34 + bass * 0.34 + u_styleB.y * 0.08);
+  float broad = fbm(warped * (0.92 + u_scene.z * 0.24) + vec2(flow * 0.46, -flow * 0.31));
+  float islands = fbm(warped * 1.68 + vec2(-flow * 0.52, flow * 0.38) + broad * 1.25);
+  float blend = smoothstep(0.34, 0.68, islands + (broad - 0.5) * 0.42);
+  vec3 firstColor = paletteField(broad * 1.42 + warpB * 0.24);
+  vec3 secondColor = paletteField(islands * 1.56 + 0.36 - warpA * 0.18);
+  vec3 color = mix(firstColor, secondColor, blend);
+  float softLight = 0.3 + broad * 0.35 + islands * 0.24;
+  float musicLight = energy * 0.15 + beat * 0.09 + bassHit * 0.11;
+  return color * (softLight + musicLight);
 }
 
 vec3 wavesVisual(vec2 uv) {
@@ -333,38 +351,6 @@ vec3 watchingEyeVisual(vec2 uv) {
     + vec3(0.72, 0.86, 1.0) * highlight * 0.3;
 }
 
-vec3 triangleWeights(vec2 point, vec2 first, vec2 second, vec2 third) {
-  vec2 edgeA = second - first;
-  vec2 edgeB = third - first;
-  vec2 local = point - first;
-  float denominator = edgeA.x * edgeB.y - edgeB.x * edgeA.y;
-  float secondWeight = (local.x * edgeB.y - edgeB.x * local.y) / denominator;
-  float thirdWeight = (edgeA.x * local.y - local.x * edgeA.y) / denominator;
-  return vec3(1.0 - secondWeight - thirdWeight, secondWeight, thirdWeight);
-}
-
-vec3 morphingPyramidVisual(vec2 uv) {
-  float turn = u_time * (0.16 + u_visual.x * 0.09);
-  vec2 p = rotate2(uv, sin(turn * 0.31) * 0.12);
-  vec2 apex = vec2(sin(turn) * 0.16, 0.68);
-  vec2 left = vec2(-0.72, -0.56 + sin(turn * 0.73) * 0.035);
-  vec2 right = vec2(0.72, -0.56 - sin(turn * 0.73) * 0.035);
-  vec3 weights = triangleWeights(p, apex, left, right);
-  float boundary = min(weights.x, min(weights.y, weights.z));
-  float pyramid = smoothstep(-0.02, 0.018, boundary);
-  float outerEdge = exp(-abs(boundary) * 48.0) * pyramid;
-  float innerScale = 0.42 + sin(turn * 0.62) * 0.045;
-  vec3 innerWeights = triangleWeights(p, apex * innerScale + vec2(0.0, -0.03), left * innerScale + vec2(0.0, -0.03), right * innerScale + vec2(0.0, -0.03));
-  float innerBoundary = min(innerWeights.x, min(innerWeights.y, innerWeights.z));
-  float hollow = smoothstep(-0.02, 0.02, innerBoundary);
-  float sideMix = smoothstep(-0.06, 0.06, p.x - apex.x * 0.35);
-  vec3 face = mix(u_colorB, u_colorC, sideMix);
-  face = mix(face, u_colorD, (1.0 - smoothstep(-0.48, -0.16, p.y)) * 0.55);
-  return face * pyramid * (1.0 - hollow * 0.78) * 0.4
-    + paletteField(0.72 + turn * 0.01) * outerEdge * 0.42
-    + paletteField(0.24 - turn * 0.008) * exp(-abs(innerBoundary) * 52.0) * pyramid * 0.24;
-}
-
 vec3 tumblingCubeVisual(vec2 uv) {
   float turn = u_time * (0.13 + u_visual.x * 0.08);
   vec2 p = rotate2(uv, turn * 0.24 + sin(turn * 0.4) * 0.08);
@@ -426,13 +412,13 @@ vec3 visualFamily(int id, vec2 uv) {
   if (id == 11) return bulgingCheckerVisual(uv);
   if (id == 12) return spinningSkullVisual(uv);
   if (id == 13) return watchingEyeVisual(uv);
-  if (id == 14) return morphingPyramidVisual(uv);
+  if (id == 14) return chromaticSplotchWaveVisual(uv);
   if (id == 15) return tumblingCubeVisual(uv);
   return technoGridVisual(uv);
 }
 
-bool isAnchoredSubject(int id) {
-  return id == 9 || id == 12;
+bool usesCleanSceneCoordinates(int id) {
+  return id == 9 || id == 12 || id == 14;
 }
 
 void main() {
@@ -473,18 +459,18 @@ void main() {
   uv.x = mix(uv.x, abs(uv.x) - 0.28, max(mirrorFold, wildFold));
   int primaryId = int(round(u_styleA.x));
   int secondaryId = int(round(u_styleA.y));
-  vec2 primaryUv = isAnchoredSubject(primaryId) ? stableUv : uv;
-  vec2 secondaryUv = isAnchoredSubject(secondaryId) ? stableUv : uv;
+  vec2 primaryUv = usesCleanSceneCoordinates(primaryId) ? stableUv : uv;
+  vec2 secondaryUv = usesCleanSceneCoordinates(secondaryId) ? stableUv : uv;
   vec3 color = visualFamily(primaryId, primaryUv) * u_styleA.z;
   if (u_styleA.w > 0.001) color += visualFamily(secondaryId, secondaryUv) * u_styleA.w;
-  float anchoredWeight = clamp(
-    (primaryId == 9 || primaryId == 12 ? u_styleA.z : 0.0)
-      + (secondaryId == 9 || secondaryId == 12 ? u_styleA.w : 0.0),
+  float cleanSceneWeight = clamp(
+    (primaryId == 9 || primaryId == 12 || primaryId == 14 ? u_styleA.z : 0.0)
+      + (secondaryId == 9 || secondaryId == 12 || secondaryId == 14 ? u_styleA.w : 0.0),
     0.0,
     1.0
   );
-  float freeScene = 1.0 - anchoredWeight;
-  vec2 presentationUv = mix(uv, stableUv, anchoredWeight);
+  float freeScene = 1.0 - cleanSceneWeight;
+  vec2 presentationUv = mix(uv, stableUv, cleanSceneWeight);
   float vignette = smoothstep(1.48, 0.22, length(presentationUv * vec2(0.68, 1.0)));
   color *= 0.3 + vignette * 0.82;
   color *= u_visual.w * (0.88 + u_pulse.y * 0.14 + bassHit * 0.16 + energyRise * 0.3) * (1.0 + overdrive * (0.12 + hitForce * 0.38));

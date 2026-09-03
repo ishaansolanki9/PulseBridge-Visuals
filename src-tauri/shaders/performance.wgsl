@@ -39,6 +39,33 @@ fn hash21(point: vec2<f32>) -> f32 {
     return fract(q.x * q.y);
 }
 
+fn field_noise(point: vec2<f32>) -> f32 {
+    let cell = floor(point);
+    let local = fract(point);
+    let smooth_local = local * local * (3.0 - 2.0 * local);
+    return mix(
+        mix(hash21(cell), hash21(cell + vec2<f32>(1.0, 0.0)), smooth_local.x),
+        mix(
+            hash21(cell + vec2<f32>(0.0, 1.0)),
+            hash21(cell + vec2<f32>(1.0, 1.0)),
+            smooth_local.x,
+        ),
+        smooth_local.y,
+    );
+}
+
+fn field_fbm(input_point: vec2<f32>) -> f32 {
+    var point = input_point;
+    var value = 0.0;
+    var amplitude = 0.5;
+    for (var octave = 0; octave < 4; octave += 1) {
+        value += field_noise(point) * amplitude;
+        point = mat2x2<f32>(1.62, 1.18, -1.18, 1.62) * point + 0.17;
+        amplitude *= 0.5;
+    }
+    return value;
+}
+
 fn rotate2(point: vec2<f32>, angle: f32) -> vec2<f32> {
     let c = cos(angle);
     let s = sin(angle);
@@ -470,50 +497,47 @@ fn watching_eye(uv: vec2<f32>, time: f32) -> vec3<f32> {
         + vec3<f32>(0.72, 0.86, 1.0) * highlight * 0.3;
 }
 
-fn triangle_weights(
-    point: vec2<f32>,
-    first: vec2<f32>,
-    second: vec2<f32>,
-    third: vec2<f32>,
-) -> vec3<f32> {
-    let edge_a = second - first;
-    let edge_b = third - first;
-    let local = point - first;
-    let denominator = edge_a.x * edge_b.y - edge_b.x * edge_a.y;
-    let second_weight = (local.x * edge_b.y - edge_b.x * local.y) / denominator;
-    let third_weight = (edge_a.x * local.y - local.x * edge_a.y) / denominator;
-    return vec3<f32>(1.0 - second_weight - third_weight, second_weight, third_weight);
-}
+fn chromatic_splotch_wave(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let drive = clamp(params.style_b.y, 0.0, 1.0);
+    let energy = clamp(params.music.x, 0.0, 1.0);
+    let bass = clamp(params.music.y, 0.0, 1.0);
+    let beat = clamp(params.pulse.y, 0.0, 1.0);
+    let bass_hit = clamp(params.reactive.x, 0.0, 1.0);
+    let impact = clamp(params.effects.y, 0.0, 1.0);
+    let rhythmic_shake = sin(params.pulse.x * TAU)
+        * (beat * 0.068 + bass_hit * 0.052 + impact * 0.035);
+    let continuous_shake = sin(time * (3.2 + energy * 4.4))
+        * energy
+        * (0.02 + drive * 0.038);
+    let vertical_shake = clamp(rhythmic_shake + continuous_shake, -0.13, 0.13);
 
-fn morphing_pyramid(uv: vec2<f32>, time: f32) -> vec3<f32> {
-    let turn = phase_time(time) * 0.21;
-    let p = rotate2(uv, sin(turn * 0.31) * 0.12);
-    let apex = vec2<f32>(sin(turn) * 0.16, 0.68 + params.reactive.x * 0.045);
-    let left = vec2<f32>(-0.72, -0.56 + sin(turn * 0.73) * 0.035);
-    let right = vec2<f32>(0.72, -0.56 - sin(turn * 0.73) * 0.035);
-    let weights = triangle_weights(p, apex, left, right);
-    let boundary = min(weights.x, min(weights.y, weights.z));
-    let pyramid = smoothstep(-0.02, 0.018, boundary);
-    let outer_edge = glow(boundary, 48.0) * pyramid;
-
-    let inner_scale = 0.42 + sin(turn * 0.62) * 0.045;
-    let inner_weights = triangle_weights(
-        p,
-        apex * inner_scale + vec2<f32>(0.0, -0.03),
-        left * inner_scale + vec2<f32>(0.0, -0.03),
-        right * inner_scale + vec2<f32>(0.0, -0.03),
+    var point = uv;
+    point.y += vertical_shake;
+    point.y += sin(point.x * 1.45 + phase_time(time) * 0.82)
+        * (0.075 + bass * 0.12);
+    let flow = phase_time(time) * 0.075;
+    let warp_a = field_fbm(
+        point * (1.02 + params.scene.y * 0.22) + vec2<f32>(flow, -flow * 0.68),
     );
-    let inner_boundary = min(inner_weights.x, min(inner_weights.y, inner_weights.z));
-    let hollow = smoothstep(-0.02, 0.02, inner_boundary);
-    let hollow_edge = glow(inner_boundary, 52.0) * pyramid;
-
-    let side_mix = smoothstep(-0.06, 0.06, p.x - apex.x * 0.35);
-    var face_color = mix(params.color_b.rgb, params.color_c.rgb, side_mix);
-    let base_face = 1.0 - smoothstep(-0.48, -0.16, p.y);
-    face_color = mix(face_color, params.color_d.rgb, base_face * 0.55);
-    return face_color * pyramid * (1.0 - hollow * 0.78) * 0.4
-        + palette_field(0.72 + turn * 0.01) * outer_edge * 0.42
-        + palette_field(0.24 - turn * 0.008) * hollow_edge * 0.24;
+    let warp_b = field_fbm(
+        point * 1.58 + vec2<f32>(-flow * 0.74, flow * 0.92) + warp_a * 1.72,
+    );
+    let warped = point + vec2<f32>(warp_a - 0.5, warp_b - 0.5)
+        * (0.34 + bass * 0.34 + drive * 0.08);
+    let broad = field_fbm(
+        warped * (0.92 + params.scene.z * 0.24)
+            + vec2<f32>(flow * 0.46, -flow * 0.31),
+    );
+    let islands = field_fbm(
+        warped * 1.68 + vec2<f32>(-flow * 0.52, flow * 0.38) + broad * 1.25,
+    );
+    let blend = smoothstep(0.34, 0.68, islands + (broad - 0.5) * 0.42);
+    let first_color = palette_field(broad * 1.42 + warp_b * 0.24);
+    let second_color = palette_field(islands * 1.56 + 0.36 - warp_a * 0.18);
+    let color = mix(first_color, second_color, blend);
+    let soft_light = 0.3 + broad * 0.35 + islands * 0.24;
+    let music_light = energy * 0.15 + beat * 0.09 + bass_hit * 0.11;
+    return color * (soft_light + music_light);
 }
 
 fn tumbling_cube(uv: vec2<f32>, time: f32) -> vec3<f32> {
@@ -674,7 +698,7 @@ fn visual_family(id: u32, uv: vec2<f32>, time: f32) -> vec3<f32> {
         case 27u: { return bulging_checker(uv, time); }
         case 28u: { return spinning_skull(uv, time); }
         case 29u: { return watching_eye(uv, time); }
-        case 30u: { return morphing_pyramid(uv, time); }
+        case 30u: { return chromatic_splotch_wave(uv, time); }
         case 31u: { return tumbling_cube(uv, time); }
         default: { return techno_laser_grid(uv, time); }
     }
@@ -691,8 +715,8 @@ fn family_weight(id: u32) -> f32 {
     return clamp(weight, 0.0, 1.0);
 }
 
-fn is_anchored_subject(id: u32) -> bool {
-    return id == 18u || id == 28u;
+fn uses_clean_scene_coordinates(id: u32) -> bool {
+    return id == 18u || id == 28u || id == 30u;
 }
 
 fn feedback_frame(screen_uv: vec2<f32>, time: f32) -> vec3<f32> {
@@ -822,11 +846,11 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let primary_id = u32(round(params.style_a.x));
     let secondary_id = u32(round(params.style_a.y));
     var primary_uv = uv;
-    if is_anchored_subject(primary_id) {
+    if uses_clean_scene_coordinates(primary_id) {
         primary_uv = stable_uv;
     }
     var secondary_uv = uv;
-    if is_anchored_subject(secondary_id) {
+    if uses_clean_scene_coordinates(secondary_id) {
         secondary_uv = stable_uv;
     }
     var color = visual_family(primary_id, primary_uv, time) * params.style_a.z;
@@ -834,9 +858,13 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         color += visual_family(secondary_id, secondary_uv, time) * params.style_a.w;
     }
 
-    let anchored_weight = clamp(family_weight(18u) + family_weight(28u), 0.0, 1.0);
-    let free_scene = 1.0 - anchored_weight;
-    let presentation_uv = mix(uv, stable_uv, anchored_weight);
+    let clean_scene_weight = clamp(
+        family_weight(18u) + family_weight(28u) + family_weight(30u),
+        0.0,
+        1.0,
+    );
+    let overlay_weight = 1.0 - clean_scene_weight;
+    let presentation_uv = mix(uv, stable_uv, clean_scene_weight);
     let vignette = 1.0 - smoothstep(
         0.25,
         1.55,
@@ -849,7 +877,7 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         * params.pulse.z
         * drive
         * 0.16
-        * free_scene;
+        * overlay_weight;
 
     let response_radius = length(uv);
     let response_angle = atan2(uv.y, uv.x);
@@ -861,7 +889,7 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         * bass_front
         * bass_hit
         * (0.12 + drive * 0.18)
-        * free_scene;
+        * overlay_weight;
     let mid_ribs = ridge(
         (uv.x + uv.y * 0.74) * (5.0 + params.music.z * 4.0)
             + phase_time(time) * 0.9,
@@ -871,7 +899,7 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         * mid_ribs
         * mid_motion
         * (0.025 + params.music.z * 0.06)
-        * free_scene;
+        * overlay_weight;
     let shard_count = 8.0 + floor(params.music.w * 8.0);
     let high_ray = ridge(
         response_angle * shard_count
@@ -892,7 +920,7 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         * high_shard
         * high_hit
         * (0.07 + drive * 0.12)
-        * free_scene;
+        * overlay_weight;
     let spectral_tint = palette_field(
         response_angle / TAU
             + params.music.y * 0.12
@@ -915,7 +943,7 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         let seed = hash21(cell);
         let mask = step(0.988 - params.music.w * 0.025, seed)
             * ridge(time * 8.0 + seed * TAU, 12.0);
-        color += palette_field(seed) * mask * sparkle * drive * 0.32 * free_scene;
+        color += palette_field(seed) * mask * sparkle * drive * 0.32 * overlay_weight;
     }
 
     color += spectral_signal_ribbon(uv, time);
@@ -924,7 +952,7 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     color = mix(
         color,
         color.gbr,
-        chromatic * drive * params.pulse.z * 0.18 * free_scene,
+        chromatic * drive * params.pulse.z * 0.18 * overlay_weight,
     );
     let impact_bloom = modifier_strength(7u);
     let impact_level = clamp(params.effects.y, 0.0, 1.0);
@@ -933,12 +961,12 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
         * impact_ring
         * max(impact_bloom, impact_level * drive)
         * 0.44
-        * free_scene;
+        * overlay_weight;
 
     let previous = feedback_frame(screen_uv, time);
     let feedback_decay = 0.82 + params.feedback.x * 0.13;
     let persistent_light = max(color, previous * feedback_decay);
-    color = mix(color, persistent_light, params.feedback.x * free_scene);
+    color = mix(color, persistent_light, params.feedback.x * overlay_weight);
 
     color = mix(color, vec3<f32>(1.0), params.pulse.w * (0.54 + drive * 0.16));
     let luminance = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));

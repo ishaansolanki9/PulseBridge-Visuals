@@ -45,7 +45,7 @@ pub enum VisualFamily {
     BulgingChecker = 27,
     SpinningSkull = 28,
     WatchingEye = 29,
-    MorphingPyramid = 30,
+    ChromaticSplotchWave = 30,
     TumblingCube = 31,
 }
 
@@ -80,7 +80,7 @@ const ALL_ILLUSIONS: [VisualFamily; 32] = [
     VisualFamily::BulgingChecker,
     VisualFamily::SpinningSkull,
     VisualFamily::WatchingEye,
-    VisualFamily::MorphingPyramid,
+    VisualFamily::ChromaticSplotchWave,
     VisualFamily::TumblingCube,
 ];
 
@@ -88,7 +88,7 @@ const READABLE_ILLUSIONS: [VisualFamily; 15] = [
     VisualFamily::SpinningAlien,
     VisualFamily::SpinningSkull,
     VisualFamily::WatchingEye,
-    VisualFamily::MorphingPyramid,
+    VisualFamily::ChromaticSplotchWave,
     VisualFamily::TumblingCube,
     VisualFamily::InfiniteChecker,
     VisualFamily::ChromaticMaze,
@@ -106,7 +106,7 @@ const FEATURED_ILLUSIONS: [VisualFamily; 4] = [
     VisualFamily::SpinningAlien,
     VisualFamily::SpinningSkull,
     VisualFamily::WatchingEye,
-    VisualFamily::MorphingPyramid,
+    VisualFamily::ChromaticSplotchWave,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -678,7 +678,7 @@ fn modifier_compatible(base: VisualFamily, modifier: ModifierKind) -> bool {
         VisualFamily::SpinningAlien
             | VisualFamily::SpinningSkull
             | VisualFamily::WatchingEye
-            | VisualFamily::MorphingPyramid
+            | VisualFamily::ChromaticSplotchWave
             | VisualFamily::TumblingCube
     ) {
         return matches!(
@@ -770,7 +770,7 @@ fn manual_family(style: VisualStyle) -> VisualFamily {
     match style {
         VisualStyle::Auto => VisualFamily::TechnoLaserGrid,
         VisualStyle::Tunnel => VisualFamily::HyperbolicTunnel,
-        VisualStyle::Fluid => VisualFamily::LiquidCircuit,
+        VisualStyle::Fluid => VisualFamily::ChromaticSplotchWave,
         VisualStyle::Waves => VisualFamily::SineInterference,
         VisualStyle::Pulse => VisualFamily::MoireRings,
         VisualStyle::Burst => VisualFamily::PrismVortex,
@@ -1074,7 +1074,7 @@ mod tests {
         assert!(ALL_ILLUSIONS.contains(&VisualFamily::BulgingChecker));
         assert!(ALL_ILLUSIONS.contains(&VisualFamily::SpinningSkull));
         assert!(ALL_ILLUSIONS.contains(&VisualFamily::WatchingEye));
-        assert!(ALL_ILLUSIONS.contains(&VisualFamily::MorphingPyramid));
+        assert!(ALL_ILLUSIONS.contains(&VisualFamily::ChromaticSplotchWave));
         assert!(ALL_ILLUSIONS.contains(&VisualFamily::TumblingCube));
         assert!(
             READABLE_ILLUSIONS
@@ -1085,7 +1085,7 @@ mod tests {
     }
 
     #[test]
-    fn featured_rotation_starts_with_alien_and_repeats_readable_anchors() {
+    fn featured_rotation_starts_with_alien_and_repeats_featured_scenes() {
         assert_eq!(featured_for_auto_shuffle(0), None);
         assert_eq!(
             featured_for_auto_shuffle(1),
@@ -1102,7 +1102,7 @@ mod tests {
         );
         assert_eq!(
             featured_for_auto_shuffle(7),
-            Some(VisualFamily::MorphingPyramid)
+            Some(VisualFamily::ChromaticSplotchWave)
         );
         assert_eq!(
             featured_for_auto_shuffle(9),
@@ -1111,7 +1111,7 @@ mod tests {
     }
 
     #[test]
-    fn four_minute_quiet_fallback_surfaces_every_featured_subject() {
+    fn four_minute_quiet_fallback_surfaces_every_featured_scene() {
         let now = Instant::now();
         let phrase = context(now, PhraseKind::Verse, 0);
         let frame = VisualInputFrame {
@@ -1159,7 +1159,15 @@ mod tests {
         assert!(shown.contains(&VisualFamily::SpinningAlien));
         assert!(shown.contains(&VisualFamily::SpinningSkull));
         assert!(shown.contains(&VisualFamily::WatchingEye));
-        assert!(shown.contains(&VisualFamily::MorphingPyramid));
+        assert!(shown.contains(&VisualFamily::ChromaticSplotchWave));
+    }
+
+    #[test]
+    fn manual_fluid_style_selects_the_chromatic_splotch_wave() {
+        assert_eq!(
+            manual_family(VisualStyle::Fluid),
+            VisualFamily::ChromaticSplotchWave
+        );
     }
 
     #[test]
@@ -1173,12 +1181,12 @@ mod tests {
     }
 
     #[test]
-    fn recognizable_scenes_reject_busy_modifiers() {
+    fn clean_featured_scenes_reject_busy_modifiers() {
         for family in [
             VisualFamily::SpinningAlien,
             VisualFamily::SpinningSkull,
             VisualFamily::WatchingEye,
-            VisualFamily::MorphingPyramid,
+            VisualFamily::ChromaticSplotchWave,
             VisualFamily::TumblingCube,
         ] {
             assert!(modifier_compatible(family, ModifierKind::PaletteDrift));
