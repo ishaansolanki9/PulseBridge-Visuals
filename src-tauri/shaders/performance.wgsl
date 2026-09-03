@@ -342,9 +342,19 @@ fn subject_music_scale() -> f32 {
     );
 }
 
-fn spinning_alien(uv: vec2<f32>, time: f32) -> vec3<f32> {
+fn subject_row_scale() -> f32 {
+    let resolution = max(params.resolution_time.xy, vec2<f32>(1.0));
+    let aspect = resolution.x / resolution.y;
+    return clamp(aspect * 0.31, 0.46, 0.55);
+}
+
+fn subject_row_shift(time: f32) -> f32 {
+    return sin(time * 0.21 + params.style_b.z * TAU) * 0.11;
+}
+
+fn alien_head(uv: vec2<f32>, time: f32, variant: f32) -> vec3<f32> {
     let point = uv / subject_music_scale();
-    let turn = phase_time(time) * 0.3;
+    let turn = phase_time(time) * 0.3 + variant * 0.22;
     let facing = cos(turn);
     let side = sin(turn);
     let front_gate = smoothstep(-0.18, 0.24, facing);
@@ -361,11 +371,36 @@ fn spinning_alien(uv: vec2<f32>, time: f32) -> vec3<f32> {
         0.88,
     );
     let back_shade = 0.62 + front_gate * 0.38;
-    let skin = palette_field(0.27 + face.y * 0.1 - side * 0.055);
+    let skin = palette_field(0.27 + face.y * 0.1 - side * 0.055 + variant * 0.21);
     var color = skin * head * surface_light * back_shade * (0.45 + params.style_b.y * 0.1);
     color += mix(params.color_c.rgb, params.color_d.rgb, 0.42 + side * 0.18)
         * rim
         * 0.2;
+
+    let contour_phase = face.y * (7.0 + params.music.w * 3.2)
+        + sin(face.x * 3.2 + time * 0.28 + variant * 1.7)
+            * (0.72 + params.music.z * 0.9)
+        - time * (0.46 + params.music.x * 0.64)
+        - params.pulse.x * TAU * 0.32;
+    let contours = ridge(contour_phase, 8.0) * head;
+    let contour_color = palette_field(
+        variant * 0.31
+            + face.x * 0.27
+            - face.y * 0.18
+            + time * (0.052 + params.music.x * 0.055)
+            + params.music.y * 0.2
+            + params.music.w * 0.44,
+    );
+    let contour_drive = 0.11
+        + params.music.z * 0.13
+        + params.music.w * 0.2
+        + params.reactive.y * 0.16
+        + params.reactive.z * 0.28
+        + params.pulse.y * 0.07;
+    color += contour_color
+        * contours
+        * contour_drive
+        * (0.55 + front_gate * 0.45);
 
     let feature_shift = side * 0.028;
     let left_eye_point = rotate2(face - vec2<f32>(-0.205 + feature_shift, 0.075), -0.2);
@@ -403,9 +438,27 @@ fn spinning_alien(uv: vec2<f32>, time: f32) -> vec3<f32> {
     return color;
 }
 
-fn spinning_skull(uv: vec2<f32>, time: f32) -> vec3<f32> {
+fn spinning_alien(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let scale = subject_row_scale();
+    let spacing = scale * 1.5;
+    let shift = subject_row_shift(time);
+    let left = alien_head(
+        (uv - vec2<f32>(shift - spacing, 0.0)) / scale,
+        time,
+        -1.0,
+    );
+    let center = alien_head((uv - vec2<f32>(shift, 0.0)) / scale, time, 0.0);
+    let right = alien_head(
+        (uv - vec2<f32>(shift + spacing, 0.0)) / scale,
+        time,
+        1.0,
+    );
+    return max(left, max(center, right));
+}
+
+fn skull_head(uv: vec2<f32>, time: f32, variant: f32) -> vec3<f32> {
     let point = uv / subject_music_scale();
-    let turn = phase_time(time) * 0.25;
+    let turn = phase_time(time) * 0.25 + variant * 0.2;
     let facing = cos(turn);
     let side = sin(turn);
     let front_gate = smoothstep(-0.2, 0.23, facing);
@@ -426,13 +479,39 @@ fn spinning_skull(uv: vec2<f32>, time: f32) -> vec3<f32> {
         glow(min(cheek_distance, jaw_distance), 58.0) * max(cheek, jaw),
     );
 
-    let bone = palette_field(0.52 + face.y * 0.085 - side * 0.045);
+    let bone = palette_field(0.52 + face.y * 0.085 - side * 0.045 + variant * 0.23);
     let surface_light = clamp(0.52 + face.y * 0.18 - face.x * side * 0.28, 0.18, 0.86);
     var color = bone
         * silhouette
         * surface_light
         * (0.36 + front_gate * 0.16 + params.style_b.y * 0.06);
     color += mix(params.color_c.rgb, params.color_d.rgb, 0.5 + side * 0.17) * rim * 0.18;
+
+    let contour_phase = (face.y + face.x * 0.32) * (7.2 + params.music.w * 3.0)
+        + sin(face.x * 3.8 - time * 0.25 + variant * 1.9)
+            * (0.68 + params.music.z)
+        - time * (0.42 + params.music.x * 0.58)
+        - params.pulse.x * TAU * 0.28;
+    let contours = ridge(contour_phase, 8.5) * silhouette;
+    let contour_color = palette_field(
+        0.18
+            + variant * 0.29
+            - face.x * 0.24
+            + face.y * 0.2
+            + time * (0.05 + params.music.x * 0.05)
+            + params.music.z * 0.27
+            + params.music.w * 0.46,
+    );
+    let contour_drive = 0.1
+        + params.music.z * 0.14
+        + params.music.w * 0.22
+        + params.reactive.y * 0.15
+        + params.reactive.z * 0.3
+        + params.pulse.y * 0.06;
+    color += contour_color
+        * contours
+        * contour_drive
+        * (0.52 + front_gate * 0.48);
 
     let feature_shift = side * 0.026;
     let left_socket_point = face - vec2<f32>(-0.205 + feature_shift, 0.1);
@@ -470,6 +549,24 @@ fn spinning_skull(uv: vec2<f32>, time: f32) -> vec3<f32> {
         * (0.3 + front_gate * 0.7);
     color += vec3<f32>(0.38, 0.42, 0.46) * crown_gloss * 0.1;
     return color;
+}
+
+fn spinning_skull(uv: vec2<f32>, time: f32) -> vec3<f32> {
+    let scale = subject_row_scale();
+    let spacing = scale * 1.5;
+    let shift = subject_row_shift(time);
+    let left = skull_head(
+        (uv - vec2<f32>(shift - spacing, 0.0)) / scale,
+        time,
+        -1.0,
+    );
+    let center = skull_head((uv - vec2<f32>(shift, 0.0)) / scale, time, 0.0);
+    let right = skull_head(
+        (uv - vec2<f32>(shift + spacing, 0.0)) / scale,
+        time,
+        1.0,
+    );
+    return max(left, max(center, right));
 }
 
 fn watching_eye(uv: vec2<f32>, time: f32) -> vec3<f32> {

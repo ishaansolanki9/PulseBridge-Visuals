@@ -255,9 +255,18 @@ float subjectMusicScale() {
   );
 }
 
-vec3 spinningAlienVisual(vec2 uv) {
+float subjectRowScale() {
+  float aspect = max(u_resolution.x, 1.0) / max(u_resolution.y, 1.0);
+  return clamp(aspect * 0.31, 0.46, 0.55);
+}
+
+float subjectRowShift() {
+  return sin(u_time * 0.21 + u_styleB.z * TAU) * 0.11;
+}
+
+vec3 alienHeadVisual(vec2 uv, float variant) {
   vec2 point = uv / subjectMusicScale();
-  float turn = u_time * (0.22 + u_visual.x * 0.12);
+  float turn = u_time * (0.22 + u_visual.x * 0.12) + variant * 0.22;
   float facing = cos(turn);
   float side = sin(turn);
   float frontGate = smoothstep(-0.18, 0.24, facing);
@@ -269,9 +278,20 @@ vec3 spinningAlienVisual(vec2 uv) {
   float rim = exp(-abs(headDistance - 0.573) * 58.0) * head;
   float surfaceLight = clamp(0.56 + face.y * 0.16 - face.x * side * 0.25 + facing * 0.055, 0.2, 0.88);
   float backShade = 0.62 + frontGate * 0.38;
-  vec3 skin = paletteField(0.27 + face.y * 0.1 - side * 0.055);
+  vec3 skin = paletteField(0.27 + face.y * 0.1 - side * 0.055 + variant * 0.21);
   vec3 color = skin * head * surfaceLight * backShade * (0.45 + u_styleB.y * 0.1);
   color += mix(u_colorC, u_colorD, 0.42 + side * 0.18) * rim * 0.2;
+  float contourPhase = face.y * (7.0 + u_music.w * 3.2)
+    + sin(face.x * 3.2 + u_time * 0.28 + variant * 1.7) * (0.72 + u_music.z * 0.9)
+    - u_time * (0.46 + u_music.x * 0.64) - u_pulse.x * TAU * 0.32;
+  float contours = pow(max(0.0, 1.0 - abs(sin(contourPhase))), 8.0) * head;
+  vec3 contourColor = paletteField(
+    variant * 0.31 + face.x * 0.27 - face.y * 0.18
+      + u_time * (0.052 + u_music.x * 0.055) + u_music.y * 0.2 + u_music.w * 0.44
+  );
+  float contourDrive = 0.11 + u_music.z * 0.13 + u_music.w * 0.2
+    + u_reactive.y * 0.16 + u_reactive.z * 0.28 + u_pulse.y * 0.07;
+  color += contourColor * contours * contourDrive * (0.55 + frontGate * 0.45);
   float featureShift = side * 0.028;
   vec2 leftPoint = rotate2(face - vec2(-0.205 + featureShift, 0.075), -0.2);
   vec2 rightPoint = rotate2(face - vec2(0.205 + featureShift, 0.075), 0.2);
@@ -292,9 +312,19 @@ vec3 spinningAlienVisual(vec2 uv) {
   return color;
 }
 
-vec3 spinningSkullVisual(vec2 uv) {
+vec3 spinningAlienVisual(vec2 uv) {
+  float scale = subjectRowScale();
+  float spacing = scale * 1.5;
+  float shift = subjectRowShift();
+  vec3 left = alienHeadVisual((uv - vec2(shift - spacing, 0.0)) / scale, -1.0);
+  vec3 center = alienHeadVisual((uv - vec2(shift, 0.0)) / scale, 0.0);
+  vec3 right = alienHeadVisual((uv - vec2(shift + spacing, 0.0)) / scale, 1.0);
+  return max(left, max(center, right));
+}
+
+vec3 skullHeadVisual(vec2 uv, float variant) {
   vec2 point = uv / subjectMusicScale();
-  float turn = u_time * (0.19 + u_visual.x * 0.1);
+  float turn = u_time * (0.19 + u_visual.x * 0.1) + variant * 0.2;
   float facing = cos(turn);
   float side = sin(turn);
   float frontGate = smoothstep(-0.2, 0.23, facing);
@@ -310,10 +340,21 @@ vec3 spinningSkullVisual(vec2 uv) {
   float jaw = 1.0 - smoothstep(0.0, 0.035, jawDistance);
   float silhouette = max(cranium, max(cheek, jaw));
   float rim = max(exp(-abs(craniumDistance - 0.518) * 58.0) * cranium, exp(-abs(min(cheekDistance, jawDistance)) * 58.0) * max(cheek, jaw));
-  vec3 bone = paletteField(0.52 + face.y * 0.085 - side * 0.045);
+  vec3 bone = paletteField(0.52 + face.y * 0.085 - side * 0.045 + variant * 0.23);
   float surfaceLight = clamp(0.52 + face.y * 0.18 - face.x * side * 0.28, 0.18, 0.86);
   vec3 color = bone * silhouette * surfaceLight * (0.36 + frontGate * 0.16 + u_styleB.y * 0.06);
   color += mix(u_colorC, u_colorD, 0.5 + side * 0.17) * rim * 0.18;
+  float contourPhase = (face.y + face.x * 0.32) * (7.2 + u_music.w * 3.0)
+    + sin(face.x * 3.8 - u_time * 0.25 + variant * 1.9) * (0.68 + u_music.z)
+    - u_time * (0.42 + u_music.x * 0.58) - u_pulse.x * TAU * 0.28;
+  float contours = pow(max(0.0, 1.0 - abs(sin(contourPhase))), 8.5) * silhouette;
+  vec3 contourColor = paletteField(
+    0.18 + variant * 0.29 - face.x * 0.24 + face.y * 0.2
+      + u_time * (0.05 + u_music.x * 0.05) + u_music.z * 0.27 + u_music.w * 0.46
+  );
+  float contourDrive = 0.1 + u_music.z * 0.14 + u_music.w * 0.22
+    + u_reactive.y * 0.15 + u_reactive.z * 0.3 + u_pulse.y * 0.06;
+  color += contourColor * contours * contourDrive * (0.52 + frontGate * 0.48);
   float featureShift = side * 0.026;
   vec2 leftPoint = face - vec2(-0.205 + featureShift, 0.1);
   vec2 rightPoint = face - vec2(0.205 + featureShift, 0.1);
@@ -330,6 +371,16 @@ vec3 spinningSkullVisual(vec2 uv) {
   float crownGloss = exp(-length(face - vec2(-0.14, 0.34)) * 8.0) * cranium * (0.3 + frontGate * 0.7);
   color += vec3(0.38, 0.42, 0.46) * crownGloss * 0.1;
   return color;
+}
+
+vec3 spinningSkullVisual(vec2 uv) {
+  float scale = subjectRowScale();
+  float spacing = scale * 1.5;
+  float shift = subjectRowShift();
+  vec3 left = skullHeadVisual((uv - vec2(shift - spacing, 0.0)) / scale, -1.0);
+  vec3 center = skullHeadVisual((uv - vec2(shift, 0.0)) / scale, 0.0);
+  vec3 right = skullHeadVisual((uv - vec2(shift + spacing, 0.0)) / scale, 1.0);
+  return max(left, max(center, right));
 }
 
 vec3 watchingEyeVisual(vec2 uv) {
