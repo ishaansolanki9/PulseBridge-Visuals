@@ -72,6 +72,13 @@ struct ProcessCandidate {
     root: bool,
 }
 
+#[derive(Debug)]
+struct OutputEndpoint {
+    id: String,
+    name: String,
+    is_default: bool,
+}
+
 pub struct Backend;
 
 impl PlatformCaptureBackend for Backend {
@@ -107,9 +114,9 @@ fn enumerate_sources_inner() -> windows::core::Result<Vec<AudioSourceInfo>> {
         name: if detected && experimental_process_capture {
             "Rekordbox process (Detected · experimental capture)".to_string()
         } else if detected {
-            "Rekordbox detected (Safe Windows-output capture)".to_string()
+            "Rekordbox detected (Automatic Windows-output capture)".to_string()
         } else {
-            "Rekordbox (Safe Windows-output capture)".to_string()
+            "Rekordbox (Automatic Windows-output capture)".to_string()
         },
         kind: AudioSourceKind::RekordboxProcess,
         detected,
@@ -119,28 +126,13 @@ fn enumerate_sources_inner() -> windows::core::Result<Vec<AudioSourceInfo>> {
         available: true,
     }];
 
-    let enumerator: IMMDeviceEnumerator =
-        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)? };
-    let default_device = unsafe {
-        enumerator
-            .GetDefaultAudioEndpoint(eRender, eMultimedia)
-            .ok()
-    };
-    let default_id = default_device
-        .as_ref()
-        .and_then(|device| device_id(device).ok());
-    let devices = unsafe { enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)? };
-    let count = unsafe { devices.GetCount()? };
-    for index in 0..count {
-        let device = unsafe { devices.Item(index)? };
-        let id = device_id(&device)?;
-        let name = device_name(&device).unwrap_or_else(|_| format!("Audio output {}", index + 1));
+    for endpoint in active_output_endpoints()? {
         sources.push(AudioSourceInfo {
-            id: format!("{DEVICE_PREFIX}{id}"),
-            name,
+            id: format!("{DEVICE_PREFIX}{}", endpoint.id),
+            name: endpoint.name,
             kind: AudioSourceKind::OutputDevice,
             detected: true,
-            is_default: default_id.as_ref().is_some_and(|default| default == &id),
+            is_default: endpoint.is_default,
             available: true,
         });
     }
@@ -253,7 +245,7 @@ fn run_capture(
         &status,
         CaptureState::Stopped,
         SampleFlowState::Unavailable,
-        Some(CaptureRoute::None),
+        None,
         None,
         None,
     );
@@ -377,7 +369,7 @@ fn capture_selected_source(
                     "route": "defaultOutputFallback",
                 }),
             );
-            return capture_default_fallback(&reason, ring, stop, status);
+            return capture_output_fallback(&reason, ring, stop, status);
         }
 
         let (_, _, build) = windows_version_parts();
@@ -395,7 +387,7 @@ fn capture_selected_source(
                     "minimumBuild": MIN_PROCESS_LOOPBACK_BUILD,
                 }),
             );
-            return capture_default_fallback(&reason, ring, stop, status);
+            return capture_output_fallback(&reason, ring, stop, status);
         }
 
         let mut process_errors = Vec::new();
@@ -462,7 +454,7 @@ fn capture_selected_source(
         } else {
             process_errors.join("; ")
         };
-        capture_default_fallback(&reason, ring, stop, status)
+        capture_output_fallback(&reason, ring, stop, status)
     } else if let Some(device_id) = source_id.strip_prefix(DEVICE_PREFIX) {
         let client = activate_endpoint_client(Some(device_id))?;
         let name = selected_device_name(device_id).unwrap_or_else(|_| "Windows output".to_string());
@@ -480,7 +472,7 @@ fn capture_selected_source(
     }
 }
 
-fn capture_default_fallback(
+fn capture_output_fallback(
     reason: &str,
     ring: &PcmRingBuffer,
     stop: &AtomicBool,
@@ -495,54 +487,136 @@ fn capture_default_fallback(
         CaptureState::Recovering,
         SampleFlowState::Waiting,
         Some(CaptureRoute::DefaultOutputFallback),
-        Some("Default Windows output".to_string()),
+        Some("Finding active Windows output…".to_string()),
         Some(format!(
-            "Rekordbox process audio was unavailable ({reason}); using default-output loopback"
+            "Rekordbox process audio was unavailable ({reason}); checking Windows outputs for live music"
         )),
     );
     crate::diagnostics::critical_event(
         "warn",
         "audio.fallback.activate",
         "OUTPUT_LOOPBACK_ACTIVATION_BEGIN",
-        "Trying the default Windows output after process capture failed",
+        "Checking active Windows outputs after process capture was unavailable",
         serde_json::json!({ "preferredRouteFailure": reason }),
     );
-    let stage = crate::diagnostics::begin_stage(
-        "audio.outputLoopbackActivation",
-        "OUTPUT_LOOPBACK_ACTIVATION_BEGIN",
-        "Activating default Windows output loopback",
-        serde_json::json!({ "preferredRouteFailure": reason }),
-    );
-    let client = match activate_endpoint_client(None) {
-        Ok(client) => {
-            stage.pass(
-                "OUTPUT_LOOPBACK_ACTIVATED",
-                "Default-output loopback client activated",
-                serde_json::Value::Null,
-            );
-            client
+    let endpoints = active_output_endpoints().map_err(|error| {
+        format!("OUTPUT_ENDPOINT_ENUMERATION_FAILED: could not list Windows outputs: {error}")
+    })?;
+    if endpoints.is_empty() {
+        return Err(
+            "OUTPUT_ENDPOINT_ENUMERATION_FAILED: Windows reported no active audio outputs"
+                .to_string(),
+        );
+    }
+
+    let endpoint_count = endpoints.len();
+    let mut failures = Vec::new();
+    for (index, endpoint) in endpoints.into_iter().enumerate() {
+        if stop.load(Ordering::Acquire) {
+            return Ok(());
         }
-        Err(fallback_error) => {
-            let message = format!(
-            "OUTPUT_LOOPBACK_ACTIVATION_FAILED: process capture unavailable ({reason}); output fallback failed: {fallback_error}"
-            );
-            stage.error(
-                "OUTPUT_LOOPBACK_ACTIVATION_FAILED",
-                &message,
-                serde_json::Value::Null,
-            );
-            return Err(message);
+        let position = index + 1;
+        let message = format!(
+            "Checking Windows output {position}/{endpoint_count}: {}",
+            endpoint.name
+        );
+        set_status(
+            status,
+            CaptureState::Connecting,
+            SampleFlowState::Waiting,
+            Some(CaptureRoute::DefaultOutputFallback),
+            Some(endpoint.name.clone()),
+            Some(message.clone()),
+        );
+        crate::diagnostics::event("info", "audio.output.probe", &message);
+        let stage = crate::diagnostics::begin_stage(
+            "audio.outputLoopbackActivation",
+            "OUTPUT_LOOPBACK_ACTIVATION_BEGIN",
+            "Activating a Windows output loopback candidate",
+            serde_json::json!({
+                "deviceId": endpoint.id,
+                "deviceName": endpoint.name,
+                "isDefault": endpoint.is_default,
+                "probeIndex": position,
+                "probeCount": endpoint_count,
+                "preferredRouteFailure": reason,
+            }),
+        );
+        let client = match activate_endpoint_client(Some(&endpoint.id)) {
+            Ok(client) => {
+                stage.pass(
+                    "OUTPUT_LOOPBACK_ACTIVATED",
+                    "Windows output loopback client activated",
+                    serde_json::json!({
+                        "deviceName": endpoint.name,
+                        "isDefault": endpoint.is_default,
+                    }),
+                );
+                client
+            }
+            Err(error) => {
+                stage.error(
+                    "OUTPUT_LOOPBACK_ACTIVATION_FAILED",
+                    &error,
+                    serde_json::json!({ "deviceName": endpoint.name }),
+                );
+                failures.push(format!("{}: {error}", endpoint.name));
+                continue;
+            }
+        };
+        match capture_client(
+            client,
+            &endpoint.name,
+            CaptureRoute::DefaultOutputFallback,
+            ring,
+            stop,
+            status,
+            RoutePolicy::DefaultFallback,
+        ) {
+            Ok(()) => return Ok(()),
+            Err(error) if stop.load(Ordering::Acquire) => return Err(error),
+            Err(error) => {
+                crate::diagnostics::event(
+                    "warn",
+                    "audio.output.probeSilent",
+                    &format!("device={} error={error}", endpoint.name),
+                );
+                failures.push(format!("{}: {error}", endpoint.name));
+            }
         }
+    }
+    Err(format!(
+        "NO_ACTIVE_OUTPUT_SIGNAL: checked {endpoint_count} Windows output(s) without finding live audio ({})",
+        failures.join("; ")
+    ))
+}
+
+fn active_output_endpoints() -> windows::core::Result<Vec<OutputEndpoint>> {
+    let enumerator: IMMDeviceEnumerator =
+        unsafe { CoCreateInstance(&MMDeviceEnumerator, None, CLSCTX_ALL)? };
+    let default_device = unsafe {
+        enumerator
+            .GetDefaultAudioEndpoint(eRender, eMultimedia)
+            .ok()
     };
-    capture_client(
-        client,
-        "Default Windows output",
-        CaptureRoute::DefaultOutputFallback,
-        ring,
-        stop,
-        status,
-        RoutePolicy::DefaultFallback,
-    )
+    let default_id = default_device
+        .as_ref()
+        .and_then(|device| device_id(device).ok());
+    let devices = unsafe { enumerator.EnumAudioEndpoints(eRender, DEVICE_STATE_ACTIVE)? };
+    let count = unsafe { devices.GetCount()? };
+    let mut endpoints = Vec::with_capacity(count as usize);
+    for index in 0..count {
+        let device = unsafe { devices.Item(index)? };
+        let id = device_id(&device)?;
+        let name = device_name(&device).unwrap_or_else(|_| format!("Audio output {}", index + 1));
+        endpoints.push(OutputEndpoint {
+            is_default: default_id.as_ref().is_some_and(|default| default == &id),
+            id,
+            name,
+        });
+    }
+    endpoints.sort_by_key(|endpoint| !endpoint.is_default);
+    Ok(endpoints)
 }
 
 fn activate_endpoint_client(device_id: Option<&str>) -> Result<IAudioClient, String> {
@@ -791,6 +865,7 @@ fn capture_client(
         current.route = route;
         current.sample_flow = SampleFlowState::Waiting;
         current.source_name = Some(source_name.to_string());
+        current.capture_initialized = true;
         current.sample_rate = Some(format.sample_rate);
         current.channels = Some(format.channels);
         current.format = Some(format.label().to_string());
@@ -909,6 +984,8 @@ fn capture_client(
                 Some(source_name.to_string()),
                 Some(if route == CaptureRoute::RekordboxProcess {
                     "Rekordbox audio client is connected but no signal is flowing. If using ASIO, enable PC MASTER OUT or select its Windows output.".to_string()
+                } else if route == CaptureRoute::DefaultOutputFallback {
+                    format!("No music detected on {source_name}; checking the other Windows outputs. If Rekordbox uses ASIO, enable PC MASTER OUT.")
                 } else {
                     "Audio client is connected but the selected output is silent".to_string()
                 }),
@@ -925,7 +1002,7 @@ fn capture_client(
                     "Rekordbox process capture produced no live samples".to_string()
                 }
                 RoutePolicy::DefaultFallback => {
-                    "Output fallback remained silent; retrying the preferred route".to_string()
+                    "Windows output remained silent; checking another output".to_string()
                 }
                 RoutePolicy::SelectedOutput => {
                     unreachable!("selected outputs do not auto-retry on silence")

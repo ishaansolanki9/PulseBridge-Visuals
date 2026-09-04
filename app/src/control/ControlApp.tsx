@@ -411,7 +411,7 @@ function audioRouteLabel(runtime: RuntimeSnapshot | null) {
   if (!runtime) return "Checking";
   if (runtime.audio.route === "rekordboxProcess") return "Rekordbox process";
   if (runtime.audio.route === "selectedOutput") return runtime.audio.sourceName ?? "Selected output";
-  if (runtime.audio.route === "defaultOutputFallback") return "Default-output fallback";
+  if (runtime.audio.route === "defaultOutputFallback") return runtime.audio.sourceName ? `Auto · ${runtime.audio.sourceName}` : "Automatic Windows output";
   if (runtime.audio.route === "systemOutputFallback") return "System-output fallback";
   if (runtime.audio.route === "selectedInput") return runtime.audio.sourceName ?? "Selected input";
   return "Not active";
@@ -447,10 +447,10 @@ function sourceMessage(source: AudioSourceInfo | undefined, native: boolean) {
   if (source.kind === "inputDevice") {
     return `Input capture ready${source.isDefault ? " · current microphone/line-in default" : ""}. macOS asks for microphone permission when it starts.`;
   }
-  if (source.kind === "rekordboxProcess" && source.name.includes("Safe Windows-output capture")) {
+  if (source.kind === "rekordboxProcess" && source.name.includes("Automatic Windows-output capture")) {
     return source.detected
-      ? "Rekordbox detected; using the crash-safe Windows output route. Sample flow is verified separately below."
-      : "Rekordbox is not detected; the safe Windows output route can still capture the current system output.";
+      ? "Rekordbox detected; PulseBridge will automatically find the Windows output carrying live music."
+      : "Rekordbox is not detected; automatic Windows-output capture will keep checking for live system audio.";
   }
   if (source.kind === "rekordboxProcess" && !source.detected) return "Rekordbox is not detected. Start stays ambient and waits/retries; supported Windows routes may use an explicit output fallback.";
   if (source.kind === "rekordboxProcess") return "Process detected; samples and phrase provenance are verified separately below.";

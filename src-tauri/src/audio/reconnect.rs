@@ -11,6 +11,7 @@ pub enum RoutePolicy {
 pub struct ReconnectPolicy {
     pub process_initial_grace: Duration,
     pub process_loss_grace: Duration,
+    pub output_probe_grace: Duration,
     pub fallback_retry: Duration,
 }
 
@@ -19,6 +20,7 @@ impl Default for ReconnectPolicy {
         Self {
             process_initial_grace: Duration::from_secs(3),
             process_loss_grace: Duration::from_secs(5),
+            output_probe_grace: Duration::from_secs(2),
             fallback_retry: Duration::from_secs(30),
         }
     }
@@ -34,7 +36,8 @@ impl ReconnectPolicy {
         match route {
             RoutePolicy::Process if signal_was_seen => silence_age >= self.process_loss_grace,
             RoutePolicy::Process => silence_age >= self.process_initial_grace,
-            RoutePolicy::DefaultFallback => silence_age >= self.fallback_retry,
+            RoutePolicy::DefaultFallback if signal_was_seen => silence_age >= self.fallback_retry,
+            RoutePolicy::DefaultFallback => silence_age >= self.output_probe_grace,
             RoutePolicy::SelectedOutput => false,
         }
     }
@@ -49,7 +52,9 @@ mod tests {
         let policy = ReconnectPolicy::default();
         assert!(!policy.should_retry(RoutePolicy::Process, false, Duration::from_secs(2)));
         assert!(policy.should_retry(RoutePolicy::Process, false, Duration::from_secs(3)));
-        assert!(!policy.should_retry(RoutePolicy::DefaultFallback, false, Duration::from_secs(29)));
+        assert!(!policy.should_retry(RoutePolicy::DefaultFallback, false, Duration::from_secs(1)));
+        assert!(policy.should_retry(RoutePolicy::DefaultFallback, false, Duration::from_secs(2)));
+        assert!(!policy.should_retry(RoutePolicy::DefaultFallback, true, Duration::from_secs(29)));
         assert!(policy.should_retry(RoutePolicy::DefaultFallback, true, Duration::from_secs(30)));
         assert!(!policy.should_retry(RoutePolicy::SelectedOutput, false, Duration::from_secs(300)));
     }

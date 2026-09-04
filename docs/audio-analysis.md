@@ -2,7 +2,7 @@
 
 ## Capture
 
-On Windows, PulseBridge enumerates every `rekordbox.exe` candidate, sorts root processes before descendants and PIDs deterministically, and attempts the virtual process-loopback device for each candidate. If activation or live samples fail, it explicitly opens the default render endpoint in loopback mode. A selected render endpoint can be captured directly.
+On Windows, PulseBridge enumerates every `rekordbox.exe` candidate and sorts root processes before descendants and PIDs deterministically. The production Rekordbox source uses crash-safe WASAPI output loopback: it probes the default render endpoint first, advances through every other active endpoint after two seconds without signal, and stays on the endpoint carrying music. A selected render endpoint can also be captured directly. The virtual process-loopback API is isolated behind an explicit developer opt-in because it caused a native heap-corruption failure on the affected Windows machine.
 
 The capture client asks WASAPI for the actual shared-mode mix format. It accepts 32-bit float and 16/24/32-bit integer PCM, validates channel count/rate/block alignment, downmixes all channels safely, and uses a stateful streaming converter for the fixed 48 kHz analysis rate. A `GetBuffer` RAII guard releases each WASAPI packet exactly once on success, conversion failure, cancellation, or device failure; bounded conversion vectors are reused.
 
@@ -41,7 +41,7 @@ Freshness is separate from the feature values:
 
 Audio return fades back through the normal envelopes. The performance screen never displays capture errors.
 
-Process detection, client initialization, first packet, non-silent signal, and reactive readiness are separate states. Silence is never labeled connected/reactive. Process capture retries candidates/fallback rather than presenting silence as a successful connection. A silent default-output fallback periodically retries the preferred Windows process route; a user-selected output remains selected. macOS releases and recreates the selected tap or input stream if the source exits, disconnects, or changes.
+Process detection, client initialization, first packet, non-silent signal, and reactive readiness are separate states. Silence is never labeled reactive. Automatic Windows capture rotates across active output endpoints until it finds non-silent samples, then waits through a 30-second pause before resuming the search; a user-selected output remains selected. Diagnostics retain the last attempted route after their worker stops and treat the intentionally disabled unsafe process API as context, so a real packet or signal failure is reported as the primary cause. macOS releases and recreates the selected tap or input stream if the source exits, disconnects, or changes.
 
 ## Phrase direction
 
