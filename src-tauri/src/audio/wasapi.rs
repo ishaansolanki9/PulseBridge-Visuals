@@ -31,7 +31,8 @@ use windows::{
         },
         System::{
             Com::{
-                CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize,
+                CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IAgileObject,
+                IAgileObject_Impl,
                 StructuredStorage::{
                     PropVariantClear, PropVariantToString, PROPVARIANT, PROPVARIANT_0,
                     PROPVARIANT_0_0, PROPVARIANT_0_0_0,
@@ -57,8 +58,8 @@ use super::{
 
 const DEVICE_PREFIX: &str = "device:";
 const PROCESS_PREFIX: &str = "process:";
+const AUTOMATIC_OUTPUT_SOURCE_ID: &str = "output:auto";
 const MIN_PROCESS_LOOPBACK_BUILD: u32 = 20_348;
-const EXPERIMENTAL_PROCESS_LOOPBACK_ENV: &str = "PULSEBRIDGE_EXPERIMENTAL_PROCESS_LOOPBACK";
 const PROCESS_ACTIVATION_RELEASE_DELAY: Duration = Duration::from_millis(50);
 const FRIENDLY_NAME_KEY: PROPERTYKEY = PROPERTYKEY {
     fmtid: GUID::from_u128(0xa45c254e_df1c_4efd_8020_67d146a850e0),
@@ -108,23 +109,30 @@ pub fn enumerate_sources() -> Result<Vec<AudioSourceInfo>, String> {
 fn enumerate_sources_inner() -> windows::core::Result<Vec<AudioSourceInfo>> {
     let candidates = find_rekordbox_processes();
     let detected = !candidates.is_empty();
-    let experimental_process_capture = experimental_process_loopback_enabled();
-    let mut sources = vec![AudioSourceInfo {
-        id: format!("{PROCESS_PREFIX}auto"),
-        name: if detected && experimental_process_capture {
-            "Rekordbox process (Detected · experimental capture)".to_string()
-        } else if detected {
-            "Rekordbox detected (Automatic Windows-output capture)".to_string()
-        } else {
-            "Rekordbox (Automatic Windows-output capture)".to_string()
+    let (_, _, build) = windows_version_parts();
+    let process_capture_supported = build >= MIN_PROCESS_LOOPBACK_BUILD;
+    let mut sources = vec![
+        AudioSourceInfo {
+            id: format!("{PROCESS_PREFIX}auto"),
+            name: if detected {
+                "Rekordbox only (Detected)".to_string()
+            } else {
+                "Rekordbox only (Not running)".to_string()
+            },
+            kind: AudioSourceKind::RekordboxProcess,
+            detected,
+            is_default: false,
+            available: process_capture_supported,
         },
-        kind: AudioSourceKind::RekordboxProcess,
-        detected,
-        is_default: false,
-        // Process capture has an explicit default-output fallback, so a closed Rekordbox
-        // process does not make startup invalid.
-        available: true,
-    }];
+        AudioSourceInfo {
+            id: AUTOMATIC_OUTPUT_SOURCE_ID.to_string(),
+            name: "Automatic Windows output (all apps)".to_string(),
+            kind: AudioSourceKind::OutputDevice,
+            detected: true,
+            is_default: false,
+            available: true,
+        },
+    ];
 
     for endpoint in active_output_endpoints()? {
         sources.push(AudioSourceInfo {
@@ -316,7 +324,7 @@ fn capture_selected_source(
         if candidates.is_empty() {
             discovery_stage.degraded(
                 "REKORDBOX_PROCESS_NOT_FOUND",
-                "Rekordbox is not running; trying the explicit output fallback",
+                "Rekordbox is not running; Rekordbox-only capture will keep waiting",
                 serde_json::json!({ "candidateCount": 0 }),
             );
         } else {
@@ -346,32 +354,6 @@ fn capture_selected_source(
             ),
         );
 
-        // Process-specific ActivateAudioInterfaceAsync repeatedly terminated the affected
-        // Windows machine with STATUS_HEAP_CORRUPTION before its completion callback returned.
-        // Keep the Rekordbox-aware selection useful, but route it through the proven stable
-        // Windows output loopback unless a developer explicitly opts into the native process
-        // API for an isolated hardware test.
-        if !experimental_process_loopback_enabled() {
-            let reason = if candidates.is_empty() {
-                "PROCESS_LOOPBACK_SAFE_FALLBACK: Rekordbox is not running; using stable Windows-output loopback"
-                    .to_string()
-            } else {
-                "PROCESS_LOOPBACK_SAFE_FALLBACK: Rekordbox was detected, but process-specific capture is disabled after a native heap-corruption failure; using stable Windows-output loopback"
-                    .to_string()
-            };
-            crate::diagnostics::critical_event(
-                "warn",
-                "audio.process.safeFallback",
-                "PROCESS_LOOPBACK_DISABLED_SAFE_MODE",
-                &reason,
-                serde_json::json!({
-                    "candidateCount": candidates.len(),
-                    "route": "defaultOutputFallback",
-                }),
-            );
-            return capture_output_fallback(&reason, ring, stop, status);
-        }
-
         let (_, _, build) = windows_version_parts();
         if build < MIN_PROCESS_LOOPBACK_BUILD {
             let reason = format!(
@@ -387,7 +369,29 @@ fn capture_selected_source(
                     "minimumBuild": MIN_PROCESS_LOOPBACK_BUILD,
                 }),
             );
-            return capture_output_fallback(&reason, ring, stop, status);
+            set_status(
+                status,
+                CaptureState::Unsupported,
+                SampleFlowState::Unavailable,
+                Some(CaptureRoute::RekordboxProcess),
+                Some("Rekordbox only".to_string()),
+                Some(reason.clone()),
+            );
+            return Err(reason);
+        }
+        if candidates.is_empty() {
+            let message =
+                "REKORDBOX_PROCESS_NOT_FOUND: start Rekordbox to use Rekordbox-only capture"
+                    .to_string();
+            set_status(
+                status,
+                CaptureState::Recovering,
+                SampleFlowState::Waiting,
+                Some(CaptureRoute::RekordboxProcess),
+                Some("Rekordbox only".to_string()),
+                Some(message.clone()),
+            );
+            return Err(message);
         }
 
         let mut process_errors = Vec::new();
@@ -449,12 +453,16 @@ fn capture_selected_source(
             }
         }
 
-        let reason = if process_errors.is_empty() {
-            "Rekordbox is not running".to_string()
+        let detail = if process_errors.is_empty() {
+            "no Rekordbox process candidate produced audio".to_string()
         } else {
             process_errors.join("; ")
         };
-        capture_output_fallback(&reason, ring, stop, status)
+        Err(format!(
+            "REKORDBOX_ONLY_CAPTURE_FAILED: {detail}. With DDJ-1000 ASIO, keep the DDJ-1000 as Rekordbox's primary device and enable PC MASTER OUT so Rekordbox also creates a Windows render stream"
+        ))
+    } else if source_id == AUTOMATIC_OUTPUT_SOURCE_ID {
+        capture_automatic_output(ring, stop, status)
     } else if let Some(device_id) = source_id.strip_prefix(DEVICE_PREFIX) {
         let client = activate_endpoint_client(Some(device_id))?;
         let name = selected_device_name(device_id).unwrap_or_else(|_| "Windows output".to_string());
@@ -472,32 +480,25 @@ fn capture_selected_source(
     }
 }
 
-fn capture_output_fallback(
-    reason: &str,
+fn capture_automatic_output(
     ring: &PcmRingBuffer,
     stop: &AtomicBool,
     status: &Mutex<CaptureStatus>,
 ) -> Result<(), String> {
-    if let Ok(mut current) = status.lock() {
-        current.fallback_attempted = true;
-        current.preferred_route_failure = Some(reason.to_string());
-    }
     set_status(
         status,
-        CaptureState::Recovering,
+        CaptureState::Connecting,
         SampleFlowState::Waiting,
-        Some(CaptureRoute::DefaultOutputFallback),
+        Some(CaptureRoute::AutomaticOutput),
         Some("Finding active Windows output…".to_string()),
-        Some(format!(
-            "Rekordbox process audio was unavailable ({reason}); checking Windows outputs for live music"
-        )),
+        Some("Checking Windows outputs for live audio from any application".to_string()),
     );
     crate::diagnostics::critical_event(
-        "warn",
-        "audio.fallback.activate",
+        "info",
+        "audio.output.autoActivate",
         "OUTPUT_LOOPBACK_ACTIVATION_BEGIN",
-        "Checking active Windows outputs after process capture was unavailable",
-        serde_json::json!({ "preferredRouteFailure": reason }),
+        "Checking active Windows outputs for live system audio",
+        serde_json::Value::Null,
     );
     let endpoints = active_output_endpoints().map_err(|error| {
         format!("OUTPUT_ENDPOINT_ENUMERATION_FAILED: could not list Windows outputs: {error}")
@@ -524,7 +525,7 @@ fn capture_output_fallback(
             status,
             CaptureState::Connecting,
             SampleFlowState::Waiting,
-            Some(CaptureRoute::DefaultOutputFallback),
+            Some(CaptureRoute::AutomaticOutput),
             Some(endpoint.name.clone()),
             Some(message.clone()),
         );
@@ -539,7 +540,6 @@ fn capture_output_fallback(
                 "isDefault": endpoint.is_default,
                 "probeIndex": position,
                 "probeCount": endpoint_count,
-                "preferredRouteFailure": reason,
             }),
         );
         let client = match activate_endpoint_client(Some(&endpoint.id)) {
@@ -567,7 +567,7 @@ fn capture_output_fallback(
         match capture_client(
             client,
             &endpoint.name,
-            CaptureRoute::DefaultOutputFallback,
+            CaptureRoute::AutomaticOutput,
             ring,
             stop,
             status,
@@ -643,10 +643,14 @@ fn activate_endpoint_client(device_id: Option<&str>) -> Result<IAudioClient, Str
     }
 }
 
-#[implement(IActivateAudioInterfaceCompletionHandler)]
+// Windows completes activation from an MTA worker. Advertising IAgileObject is part of the
+// documented callback contract and avoids COM trying to marshal this Rust-owned callback state.
+#[implement(IActivateAudioInterfaceCompletionHandler, IAgileObject)]
 struct ActivationHandler {
     sender: Mutex<Option<mpsc::Sender<Result<IAudioClient, String>>>>,
 }
+
+impl IAgileObject_Impl for ActivationHandler_Impl {}
 
 impl IActivateAudioInterfaceCompletionHandler_Impl for ActivationHandler_Impl {
     fn ActivateCompleted(
@@ -729,23 +733,6 @@ fn activate_process_client(pid: u32) -> Result<IAudioClient, String> {
     // dispatch before this thread releases the operation and its final handler reference.
     thread::sleep(PROCESS_ACTIVATION_RELEASE_DELAY);
     result.map_err(|error| format!("PROCESS_LOOPBACK_ACTIVATION_FAILED: {error}"))
-}
-
-fn experimental_process_loopback_enabled() -> bool {
-    process_loopback_opted_in(
-        std::env::var(EXPERIMENTAL_PROCESS_LOOPBACK_ENV)
-            .ok()
-            .as_deref(),
-    )
-}
-
-fn process_loopback_opted_in(value: Option<&str>) -> bool {
-    value.is_some_and(|value| {
-        matches!(
-            value.trim().to_ascii_lowercase().as_str(),
-            "1" | "true" | "yes"
-        )
-    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -984,7 +971,7 @@ fn capture_client(
                 Some(source_name.to_string()),
                 Some(if route == CaptureRoute::RekordboxProcess {
                     "Rekordbox audio client is connected but no signal is flowing. If using ASIO, enable PC MASTER OUT or select its Windows output.".to_string()
-                } else if route == CaptureRoute::DefaultOutputFallback {
+                } else if route == CaptureRoute::AutomaticOutput {
                     format!("No music detected on {source_name}; checking the other Windows outputs. If Rekordbox uses ASIO, enable PC MASTER OUT.")
                 } else {
                     "Audio client is connected but the selected output is silent".to_string()
@@ -1229,20 +1216,5 @@ fn set_status(
             current.source_name = source_name;
         }
         current.message = message;
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::process_loopback_opted_in;
-
-    #[test]
-    fn process_loopback_requires_an_explicit_developer_opt_in() {
-        assert!(!process_loopback_opted_in(None));
-        assert!(!process_loopback_opted_in(Some("")));
-        assert!(!process_loopback_opted_in(Some("false")));
-        assert!(process_loopback_opted_in(Some("1")));
-        assert!(process_loopback_opted_in(Some(" TRUE ")));
-        assert!(process_loopback_opted_in(Some("yes")));
     }
 }

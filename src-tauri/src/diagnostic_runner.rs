@@ -518,34 +518,6 @@ fn run_audio_probe(
             )
     });
     let init_snapshot = lock_unpoisoned(&status).clone();
-    if init_snapshot.fallback_attempted {
-        let preferred_failure = init_snapshot
-            .preferred_route_failure
-            .as_deref()
-            .unwrap_or("The preferred process route was unavailable");
-        let preferred_code = preferred_route_code(preferred_failure);
-        push_stage(
-            report,
-            "audio.preferredRoute",
-            DiagnosticStageStatus::Degraded,
-            init_started,
-            preferred_code,
-            preferred_failure,
-            Value::Null,
-        );
-        note_preferred_route_degradation(report, preferred_code);
-        if init_snapshot.capture_initialized {
-            push_stage(
-                report,
-                "audio.fallbackRoute",
-                DiagnosticStageStatus::Pass,
-                init_started,
-                "OUTPUT_LOOPBACK_INITIALIZED",
-                "The explicit default-output fallback initialized.",
-                status_details(&init_snapshot),
-            );
-        }
-    }
     if initialized && init_snapshot.capture_initialized {
         init_guard.pass(
             "AUDIO_CAPTURE_INITIALIZED",
@@ -876,6 +848,8 @@ fn map_audio_failure(status: &CaptureStatus, fallback: &str) -> (String, String)
         .unwrap_or_else(|| "Audio capture did not initialize before the timeout.".to_string());
     let stable = [
         "WINDOWS_BUILD_UNSUPPORTED",
+        "REKORDBOX_PROCESS_NOT_FOUND",
+        "REKORDBOX_ONLY_CAPTURE_FAILED",
         "PROCESS_LOOPBACK_ACTIVATION_FAILED",
         "OUTPUT_LOOPBACK_ACTIVATION_FAILED",
         "UNSUPPORTED_AUDIO_FORMAT",
@@ -927,26 +901,6 @@ fn mark_failure(report: &mut DiagnosticReport, stage: &str, code: &str) {
     if report.failure_code.is_none() {
         report.failure_stage = Some(stage.to_string());
         report.failure_code = Some(code.to_string());
-    }
-}
-
-fn preferred_route_code(failure: &str) -> &'static str {
-    if failure.contains("PROCESS_LOOPBACK_SAFE_FALLBACK") {
-        "PROCESS_LOOPBACK_DISABLED_SAFE_MODE"
-    } else if failure.contains("WINDOWS_BUILD_UNSUPPORTED") {
-        "WINDOWS_BUILD_UNSUPPORTED"
-    } else if failure.contains("PROCESS_LOOPBACK_ACTIVATION_FAILED") {
-        "PROCESS_LOOPBACK_ACTIVATION_FAILED"
-    } else if failure.contains("Rekordbox is not running") {
-        "REKORDBOX_PROCESS_NOT_FOUND"
-    } else {
-        "PROCESS_LOOPBACK_ACTIVATION_FAILED"
-    }
-}
-
-fn note_preferred_route_degradation(report: &mut DiagnosticReport, code: &str) {
-    if code != "PROCESS_LOOPBACK_DISABLED_SAFE_MODE" && report.verdict == DiagnosticVerdict::Pass {
-        report.verdict = DiagnosticVerdict::Degraded;
     }
 }
 
@@ -1023,40 +977,6 @@ mod tests {
         assert_eq!(
             map_audio_failure(&status, "AUDIO_CLIENT_START_FAILED").0,
             "WINDOWS_BUILD_UNSUPPORTED"
-        );
-    }
-
-    #[test]
-    fn expected_safe_route_does_not_hide_a_later_audio_failure() {
-        let mut report = DiagnosticReport {
-            verdict: DiagnosticVerdict::Pass,
-            ..Default::default()
-        };
-
-        let code = preferred_route_code(
-            "PROCESS_LOOPBACK_SAFE_FALLBACK: using stable Windows-output loopback",
-        );
-        note_preferred_route_degradation(&mut report, code);
-
-        assert_eq!(code, "PROCESS_LOOPBACK_DISABLED_SAFE_MODE");
-        assert_eq!(report.verdict, DiagnosticVerdict::Pass);
-        assert!(report.failure_stage.is_none());
-        assert!(report.failure_code.is_none());
-
-        mark_failure(
-            &mut report,
-            "audio.captureInitialization",
-            "AUDIO_CLIENT_START_FAILED",
-        );
-
-        assert_eq!(report.verdict, DiagnosticVerdict::Fail);
-        assert_eq!(
-            report.failure_stage.as_deref(),
-            Some("audio.captureInitialization")
-        );
-        assert_eq!(
-            report.failure_code.as_deref(),
-            Some("AUDIO_CLIENT_START_FAILED")
         );
     }
 

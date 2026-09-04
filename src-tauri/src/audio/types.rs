@@ -40,6 +40,7 @@ pub enum CaptureRoute {
     None,
     RekordboxProcess,
     SelectedOutput,
+    AutomaticOutput,
     DefaultOutputFallback,
     SystemOutputFallback,
     SelectedInput,
@@ -79,4 +80,17 @@ pub struct CaptureStatus {
     pub dropped_samples: u64,
     pub rms: f32,
     pub peak: f32,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CaptureRoute;
+
+    #[test]
+    fn automatic_output_has_an_explicit_public_route() {
+        assert_eq!(
+            serde_json::to_string(&CaptureRoute::AutomaticOutput).unwrap(),
+            "\"automaticOutput\""
+        );
+    }
 }

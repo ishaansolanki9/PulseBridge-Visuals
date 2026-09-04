@@ -53,7 +53,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 The build script installs missing Windows prerequisites when possible, verifies the project, and creates `transfer-ready\PulseBridge Visuals Setup.exe`. Run that installer; development tools are not needed after installation. The current installer is unsigned, so Windows SmartScreen may require **More info → Run anyway**.
 
-After installation, open Rekordbox before PulseBridge. The Rekordbox source automatically checks each active Windows output and stays on the one carrying music. If Rekordbox uses ASIO, enable PC MASTER OUT so the master is also sent to a capturable Windows output; direct exclusive-mode ASIO audio is outside WASAPI loopback. Run **Test connection** before starting fullscreen visuals.
+After installation, open Rekordbox before PulseBridge and select **Rekordbox only** as the live audio source. PulseBridge uses Windows application loopback to include the Rekordbox process tree and exclude browsers, notifications, Spotify, and other applications. With a DDJ-1000 on Windows, keep **DDJ-1000 ASIO** as Rekordbox's primary audio device and enable **PC MASTER OUT** so Rekordbox also creates the Windows render stream that application loopback can capture. Direct exclusive-mode ASIO audio is outside WASAPI loopback. Run **Test connection** while a track is playing before starting fullscreen visuals.
 
 ### Local development
 
@@ -70,7 +70,9 @@ The browser build is an ambient controller preview. To run the native applicatio
 npm run tauri -- dev
 ```
 
-Windows uses stable output loopback for the Rekordbox-aware default after affected-machine reports isolated a native heap-corruption failure inside process-specific activation. It probes the default output first, advances across the other active render endpoints when no live signal appears, and keeps the endpoint carrying music. You can still choose an exact output manually. With ASIO, enable PC MASTER OUT so Rekordbox feeds a shared-mode Windows endpoint. The process-specific API remains developer-opt-in until a repaired build passes the real-device matrix. macOS offers Rekordbox-only and all-system-output Core Audio taps on 14.2+, plus detected microphone/line-in inputs. macOS permissions are requested only when the selected route starts; if denied, enable PulseBridge under **System Settings → Privacy & Security → Screen & System Audio Recording** or **Microphone**.
+Windows keeps **Rekordbox only** separate from output-device capture. The default Rekordbox source uses process-tree application loopback and never silently substitutes all-system audio. **Automatic Windows output (all apps)** is an explicit alternative that probes the default output followed by other active render endpoints, while individual outputs remain manually selectable. The process activation callback is kept alive until Windows completes it and implements the agile COM contract required for cross-apartment completion. macOS offers Rekordbox-only and all-system-output Core Audio taps on 14.2+, plus detected microphone/line-in inputs. macOS permissions are requested only when the selected route starts; if denied, enable PulseBridge under **System Settings → Privacy & Security → Screen & System Audio Recording** or **Microphone**.
+
+Audio capture supplies the mixed PCM signal used to derive loudness, bass, mids, highs, onsets, and musical-state estimates. It does not claim access to Rekordbox's rendered waveform graphics, individual deck/stem layers, or private phrase metadata.
 
 Before fullscreen, use **Test connection** and choose a mode. The report separates process detection, capture initialization, packets, non-silent samples, reactive readiness, GPU validation, and hidden-surface presentation. **Copy readable result**, **Copy JSON**, and **Open logs folder** are available in the controller.
 

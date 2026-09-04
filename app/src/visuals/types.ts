@@ -20,7 +20,7 @@ export type CaptureState =
   | "recovering"
   | "failed"
   | "unsupported";
-export type CaptureRoute = "none" | "rekordboxProcess" | "selectedOutput" | "defaultOutputFallback" | "systemOutputFallback" | "selectedInput";
+export type CaptureRoute = "none" | "rekordboxProcess" | "selectedOutput" | "automaticOutput" | "defaultOutputFallback" | "systemOutputFallback" | "selectedInput";
 export type SampleFlowState = "unavailable" | "waiting" | "flowing" | "silent";
 export type OutputMode = "reactive" | "ambient" | "black";
 export type RuntimeLifecycle = "stopped" | "starting" | "running" | "recovering" | "failed";

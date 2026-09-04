@@ -411,6 +411,7 @@ function audioRouteLabel(runtime: RuntimeSnapshot | null) {
   if (!runtime) return "Checking";
   if (runtime.audio.route === "rekordboxProcess") return "Rekordbox process";
   if (runtime.audio.route === "selectedOutput") return runtime.audio.sourceName ?? "Selected output";
+  if (runtime.audio.route === "automaticOutput") return runtime.audio.sourceName ? `All apps · ${runtime.audio.sourceName}` : "Automatic Windows output";
   if (runtime.audio.route === "defaultOutputFallback") return runtime.audio.sourceName ? `Auto · ${runtime.audio.sourceName}` : "Automatic Windows output";
   if (runtime.audio.route === "systemOutputFallback") return "System-output fallback";
   if (runtime.audio.route === "selectedInput") return runtime.audio.sourceName ?? "Selected input";
@@ -447,13 +448,14 @@ function sourceMessage(source: AudioSourceInfo | undefined, native: boolean) {
   if (source.kind === "inputDevice") {
     return `Input capture ready${source.isDefault ? " · current microphone/line-in default" : ""}. macOS asks for microphone permission when it starts.`;
   }
-  if (source.kind === "rekordboxProcess" && source.name.includes("Automatic Windows-output capture")) {
+  if (source.kind === "rekordboxProcess" && source.name.startsWith("Rekordbox only")) {
     return source.detected
-      ? "Rekordbox detected; PulseBridge will automatically find the Windows output carrying live music."
-      : "Rekordbox is not detected; automatic Windows-output capture will keep checking for live system audio.";
+      ? "Rekordbox-only capture · excludes every other app. With DDJ-1000 ASIO, keep the DDJ primary and enable PC MASTER OUT."
+      : "Start Rekordbox first. This source waits for Rekordbox and never substitutes audio from another application.";
   }
-  if (source.kind === "rekordboxProcess" && !source.detected) return "Rekordbox is not detected. Start stays ambient and waits/retries; supported Windows routes may use an explicit output fallback.";
-  if (source.kind === "rekordboxProcess") return "Process detected; samples and phrase provenance are verified separately below.";
+  if (source.kind === "rekordboxProcess" && !source.detected) return "Rekordbox is not detected. Start Rekordbox first; this source never substitutes audio from another application.";
+  if (source.kind === "rekordboxProcess") return "Rekordbox-only process capture · excludes audio from every other application.";
+  if (source.id === "output:auto") return "All-system capture · checks Windows outputs and may include audio from other applications.";
   if (source.id === "output:default") return "System-audio capture ready · listens to everything playing through macOS speakers/output.";
   return `Output loopback ready${source.isDefault ? " · current system default" : ""}.`;
 }
