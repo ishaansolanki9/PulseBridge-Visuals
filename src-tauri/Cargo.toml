@@ -1,6 +1,6 @@
 [package]
 name = "pulsebridge"
-version = "0.1.0"
+version = "0.1.1"
 description = "Music-reactive fullscreen shader visuals for a second display"
 authors = ["PulseBridge contributors"]
 edition = "2021"

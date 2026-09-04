@@ -26,11 +26,6 @@ if ($env:OS -ne "Windows_NT") {
     throw "This script must run on the Windows laptop that will build the installer."
 }
 
-$windowsBuild = [Environment]::OSVersion.Version.Build
-if ($windowsBuild -lt 20348) {
-    Write-Warning "This Windows build is older than 20348. PulseBridge will use output-device loopback if process-only capture is unavailable."
-}
-
 if (-not (Get-Command node -ErrorAction SilentlyContinue)) {
     Install-WithWinget "OpenJS.NodeJS.LTS" "Node.js LTS"
 }

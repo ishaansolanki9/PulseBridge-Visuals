@@ -1,50 +1,39 @@
 use std::{
-    mem::{size_of, ManuallyDrop},
+    mem::size_of,
     slice,
     sync::{
         atomic::{AtomicBool, Ordering},
-        mpsc, Arc, Mutex,
+        Arc, Mutex,
     },
     thread::{self, JoinHandle},
     time::{Duration, Instant},
 };
 
 use windows::{
-    core::{implement, Interface, Ref, GUID, HRESULT, HSTRING},
+    core::{GUID, HRESULT, HSTRING},
     Win32::{
         Foundation::{CloseHandle, PROPERTYKEY},
         Media::{
             Audio::{
-                eMultimedia, eRender, ActivateAudioInterfaceAsync,
-                IActivateAudioInterfaceAsyncOperation, IActivateAudioInterfaceCompletionHandler,
-                IActivateAudioInterfaceCompletionHandler_Impl, IAudioCaptureClient, IAudioClient,
-                IMMDevice, IMMDeviceEnumerator, MMDeviceEnumerator, AUDCLNT_BUFFERFLAGS_SILENT,
-                AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK,
-                AUDIOCLIENT_ACTIVATION_PARAMS, AUDIOCLIENT_ACTIVATION_PARAMS_0,
-                AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK, AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS,
-                DEVICE_STATE_ACTIVE, PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE,
-                VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK, WAVEFORMATEX, WAVEFORMATEXTENSIBLE,
-                WAVE_FORMAT_PCM,
+                eMultimedia, eRender, IAudioCaptureClient, IAudioClient, IMMDevice,
+                IMMDeviceEnumerator, MMDeviceEnumerator, AUDCLNT_BUFFERFLAGS_SILENT,
+                AUDCLNT_SHAREMODE_SHARED, AUDCLNT_STREAMFLAGS_LOOPBACK, DEVICE_STATE_ACTIVE,
+                WAVEFORMATEX, WAVEFORMATEXTENSIBLE, WAVE_FORMAT_PCM,
             },
             KernelStreaming::{KSDATAFORMAT_SUBTYPE_PCM, WAVE_FORMAT_EXTENSIBLE},
             Multimedia::{KSDATAFORMAT_SUBTYPE_IEEE_FLOAT, WAVE_FORMAT_IEEE_FLOAT},
         },
         System::{
             Com::{
-                CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IAgileObject,
-                IAgileObject_Impl,
-                StructuredStorage::{
-                    PropVariantClear, PropVariantToString, PROPVARIANT, PROPVARIANT_0,
-                    PROPVARIANT_0_0, PROPVARIANT_0_0_0,
-                },
-                BLOB, CLSCTX_ALL, COINIT_MULTITHREADED, STGM_READ,
+                CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize,
+                StructuredStorage::{PropVariantClear, PropVariantToString},
+                CLSCTX_ALL, COINIT_MULTITHREADED, STGM_READ,
             },
             Diagnostics::ToolHelp::{
                 CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
                 TH32CS_SNAPPROCESS,
             },
             SystemInformation::{GetVersionExW, OSVERSIONINFOW},
-            Variant::VT_BLOB,
         },
     },
 };
@@ -59,19 +48,10 @@ use super::{
 const DEVICE_PREFIX: &str = "device:";
 const PROCESS_PREFIX: &str = "process:";
 const AUTOMATIC_OUTPUT_SOURCE_ID: &str = "output:auto";
-const MIN_PROCESS_LOOPBACK_BUILD: u32 = 20_348;
-const PROCESS_ACTIVATION_RELEASE_DELAY: Duration = Duration::from_millis(50);
 const FRIENDLY_NAME_KEY: PROPERTYKEY = PROPERTYKEY {
     fmtid: GUID::from_u128(0xa45c254e_df1c_4efd_8020_67d146a850e0),
     pid: 14,
 };
-
-#[derive(Clone, Copy, Debug)]
-struct ProcessCandidate {
-    pid: u32,
-    parent_pid: u32,
-    root: bool,
-}
 
 #[derive(Debug)]
 struct OutputEndpoint {
@@ -107,29 +87,26 @@ pub fn enumerate_sources() -> Result<Vec<AudioSourceInfo>, String> {
 }
 
 fn enumerate_sources_inner() -> windows::core::Result<Vec<AudioSourceInfo>> {
-    let candidates = find_rekordbox_processes();
-    let detected = !candidates.is_empty();
-    let (_, _, build) = windows_version_parts();
-    let process_capture_supported = build >= MIN_PROCESS_LOOPBACK_BUILD;
+    let detected = rekordbox_process_count() > 0;
     let mut sources = vec![
         AudioSourceInfo {
             id: format!("{PROCESS_PREFIX}auto"),
             name: if detected {
-                "Rekordbox only (Detected)".to_string()
+                "Rekordbox detected (process capture disabled for stability)".to_string()
             } else {
-                "Rekordbox only (Not running)".to_string()
+                "Rekordbox not running (process capture disabled)".to_string()
             },
             kind: AudioSourceKind::RekordboxProcess,
             detected,
             is_default: false,
-            available: process_capture_supported,
+            available: false,
         },
         AudioSourceInfo {
             id: AUTOMATIC_OUTPUT_SOURCE_ID.to_string(),
-            name: "Automatic Windows output (all apps)".to_string(),
+            name: "Automatic Windows output (recommended · all apps)".to_string(),
             kind: AudioSourceKind::OutputDevice,
             detected: true,
-            is_default: false,
+            is_default: true,
             available: true,
         },
     ];
@@ -212,7 +189,7 @@ fn run_capture(
     }
 
     while !stop.load(Ordering::Acquire) {
-        let detected = !find_rekordbox_processes().is_empty();
+        let detected = rekordbox_process_count() > 0;
         if let Ok(mut current) = status.lock() {
             current.rekordbox_detected = detected;
         }
@@ -314,153 +291,14 @@ fn capture_selected_source(
     status: &Mutex<CaptureStatus>,
 ) -> Result<(), String> {
     if source_id.strip_prefix(PROCESS_PREFIX).is_some() {
-        let discovery_stage = crate::diagnostics::begin_stage(
-            "audio.processDiscovery",
-            "REKORDBOX_PROCESS_DISCOVERY_BEGIN",
-            "Enumerating deterministic Rekordbox process candidates",
+        crate::diagnostics::critical_event(
+            "warn",
+            "audio.process.redirected",
+            "PROCESS_LOOPBACK_DISABLED_AFTER_NATIVE_CRASH",
+            "A legacy Rekordbox-only selection was redirected to safe automatic Windows-output capture",
             serde_json::Value::Null,
         );
-        let candidates = find_rekordbox_processes();
-        if candidates.is_empty() {
-            discovery_stage.degraded(
-                "REKORDBOX_PROCESS_NOT_FOUND",
-                "Rekordbox is not running; Rekordbox-only capture will keep waiting",
-                serde_json::json!({ "candidateCount": 0 }),
-            );
-        } else {
-            discovery_stage.pass(
-                "REKORDBOX_PROCESS_FOUND",
-                "Found deterministic Rekordbox process candidates",
-                serde_json::json!({ "candidateCount": candidates.len() }),
-            );
-        }
-        if let Ok(mut current) = status.lock() {
-            current.rekordbox_detected = !candidates.is_empty();
-        }
-        crate::diagnostics::event(
-            "info",
-            "audio.process.candidates",
-            &format!(
-                "count={} candidates={}",
-                candidates.len(),
-                candidates
-                    .iter()
-                    .map(|candidate| format!(
-                        "pid:{} parent:{} root:{}",
-                        candidate.pid, candidate.parent_pid, candidate.root
-                    ))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            ),
-        );
-
-        let (_, _, build) = windows_version_parts();
-        if build < MIN_PROCESS_LOOPBACK_BUILD {
-            let reason = format!(
-                "WINDOWS_BUILD_UNSUPPORTED: process loopback requires Windows build {MIN_PROCESS_LOOPBACK_BUILD} or later; detected build {build}"
-            );
-            crate::diagnostics::critical_event(
-                "warn",
-                "audio.process.unsupported",
-                "WINDOWS_BUILD_UNSUPPORTED",
-                &reason,
-                serde_json::json!({
-                    "detectedBuild": build,
-                    "minimumBuild": MIN_PROCESS_LOOPBACK_BUILD,
-                }),
-            );
-            set_status(
-                status,
-                CaptureState::Unsupported,
-                SampleFlowState::Unavailable,
-                Some(CaptureRoute::RekordboxProcess),
-                Some("Rekordbox only".to_string()),
-                Some(reason.clone()),
-            );
-            return Err(reason);
-        }
-        if candidates.is_empty() {
-            let message =
-                "REKORDBOX_PROCESS_NOT_FOUND: start Rekordbox to use Rekordbox-only capture"
-                    .to_string();
-            set_status(
-                status,
-                CaptureState::Recovering,
-                SampleFlowState::Waiting,
-                Some(CaptureRoute::RekordboxProcess),
-                Some("Rekordbox only".to_string()),
-                Some(message.clone()),
-            );
-            return Err(message);
-        }
-
-        let mut process_errors = Vec::new();
-        for candidate in candidates {
-            crate::diagnostics::event(
-                "info",
-                "audio.process.activate",
-                &format!("pid={}", candidate.pid),
-            );
-            let activation_stage = crate::diagnostics::begin_stage(
-                "audio.processLoopbackActivation",
-                "PROCESS_LOOPBACK_ACTIVATION_BEGIN",
-                "Activating Rekordbox process loopback",
-                serde_json::json!({ "pid": candidate.pid }),
-            );
-            let client = match activate_process_client(candidate.pid) {
-                Ok(client) => {
-                    activation_stage.pass(
-                        "PROCESS_LOOPBACK_ACTIVATED",
-                        "Rekordbox process-loopback client activated",
-                        serde_json::json!({ "pid": candidate.pid }),
-                    );
-                    client
-                }
-                Err(error) => {
-                    activation_stage.error(
-                        "PROCESS_LOOPBACK_ACTIVATION_FAILED",
-                        &error,
-                        serde_json::json!({ "pid": candidate.pid }),
-                    );
-                    crate::diagnostics::event(
-                        "warn",
-                        "audio.process.failed",
-                        &format!("pid={} error={error}", candidate.pid),
-                    );
-                    process_errors.push(format!("PID {}: {error}", candidate.pid));
-                    continue;
-                }
-            };
-            match capture_client(
-                client,
-                "Rekordbox process",
-                CaptureRoute::RekordboxProcess,
-                ring,
-                stop,
-                status,
-                RoutePolicy::Process,
-            ) {
-                Ok(()) => return Ok(()),
-                Err(error) if !stop.load(Ordering::Acquire) => {
-                    crate::diagnostics::event(
-                        "warn",
-                        "audio.process.failed",
-                        &format!("pid={} error={error}", candidate.pid),
-                    );
-                    process_errors.push(format!("PID {}: {error}", candidate.pid));
-                }
-                Err(error) => return Err(error),
-            }
-        }
-
-        let detail = if process_errors.is_empty() {
-            "no Rekordbox process candidate produced audio".to_string()
-        } else {
-            process_errors.join("; ")
-        };
-        Err(format!(
-            "REKORDBOX_ONLY_CAPTURE_FAILED: {detail}. With DDJ-1000 ASIO, keep the DDJ-1000 as Rekordbox's primary device and enable PC MASTER OUT so Rekordbox also creates a Windows render stream"
-        ))
+        capture_automatic_output(ring, stop, status)
     } else if source_id == AUTOMATIC_OUTPUT_SOURCE_ID {
         capture_automatic_output(ring, stop, status)
     } else if let Some(device_id) = source_id.strip_prefix(DEVICE_PREFIX) {
@@ -571,7 +409,7 @@ fn capture_automatic_output(
             ring,
             stop,
             status,
-            RoutePolicy::DefaultFallback,
+            RoutePolicy::AutomaticOutput,
         ) {
             Ok(()) => return Ok(()),
             Err(error) if stop.load(Ordering::Acquire) => return Err(error),
@@ -641,98 +479,6 @@ fn activate_endpoint_client(device_id: Option<&str>) -> Result<IAudioClient, Str
             .Activate::<IAudioClient>(CLSCTX_ALL, None)
             .map_err(|error| error.to_string())
     }
-}
-
-// Windows completes activation from an MTA worker. Advertising IAgileObject is part of the
-// documented callback contract and avoids COM trying to marshal this Rust-owned callback state.
-#[implement(IActivateAudioInterfaceCompletionHandler, IAgileObject)]
-struct ActivationHandler {
-    sender: Mutex<Option<mpsc::Sender<Result<IAudioClient, String>>>>,
-}
-
-impl IAgileObject_Impl for ActivationHandler_Impl {}
-
-impl IActivateAudioInterfaceCompletionHandler_Impl for ActivationHandler_Impl {
-    fn ActivateCompleted(
-        &self,
-        activate_operation: Ref<IActivateAudioInterfaceAsyncOperation>,
-    ) -> windows::core::Result<()> {
-        let result = (|| -> windows::core::Result<IAudioClient> {
-            let operation = activate_operation.ok()?;
-            let mut activation_result = HRESULT::default();
-            let mut interface = None;
-            unsafe { operation.GetActivateResult(&mut activation_result, &mut interface)? };
-            activation_result.ok()?;
-            interface
-                .ok_or_else(|| windows::core::Error::from_hresult(HRESULT(0x80004005_u32 as i32)))?
-                .cast::<IAudioClient>()
-        })()
-        .map_err(|error| error.to_string());
-        if let Ok(mut sender) = self.sender.lock() {
-            if let Some(sender) = sender.take() {
-                let _ = sender.send(result);
-            }
-        }
-        Ok(())
-    }
-}
-
-fn activate_process_client(pid: u32) -> Result<IAudioClient, String> {
-    let params = AUDIOCLIENT_ACTIVATION_PARAMS {
-        ActivationType: AUDIOCLIENT_ACTIVATION_TYPE_PROCESS_LOOPBACK,
-        Anonymous: AUDIOCLIENT_ACTIVATION_PARAMS_0 {
-            ProcessLoopbackParams: AUDIOCLIENT_PROCESS_LOOPBACK_PARAMS {
-                TargetProcessId: pid,
-                ProcessLoopbackMode: PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE,
-            },
-        },
-    };
-    let inner = PROPVARIANT_0_0 {
-        vt: VT_BLOB,
-        Anonymous: PROPVARIANT_0_0_0 {
-            blob: BLOB {
-                cbSize: size_of::<AUDIOCLIENT_ACTIVATION_PARAMS>() as u32,
-                pBlobData: &params as *const _ as *mut u8,
-            },
-        },
-        ..Default::default()
-    };
-    let activation_params = PROPVARIANT {
-        Anonymous: PROPVARIANT_0 {
-            Anonymous: ManuallyDrop::new(inner),
-        },
-    };
-    let (sender, receiver) = mpsc::channel();
-    let handler: IActivateAudioInterfaceCompletionHandler = ActivationHandler {
-        sender: Mutex::new(Some(sender)),
-    }
-    .into();
-    let _operation = unsafe {
-        ActivateAudioInterfaceAsync(
-            VIRTUAL_AUDIO_DEVICE_PROCESS_LOOPBACK,
-            &IAudioClient::IID,
-            Some(&activation_params),
-            &handler,
-        )
-        .map_err(|error| {
-            format!(
-                "PROCESS_LOOPBACK_ACTIVATION_FAILED: {}",
-                windows_error("ACTIVATE_AUDIO_INTERFACE_ASYNC", &error)
-            )
-        })?
-    };
-    // ActivateAudioInterfaceAsync has no cancellation API. Keep both COM objects on this MTA
-    // thread until Windows calls ActivateCompleted, exactly as the reference sample waits for
-    // its completion event. The old five-second timeout could drop them while a late native
-    // callback was still pending, violating the documented lifetime contract.
-    let result = receiver.recv().map_err(|_| {
-        "PROCESS_LOOPBACK_ACTIVATION_FAILED: Windows closed the activation callback unexpectedly"
-            .to_string()
-    })?;
-    // The callback sends immediately before returning. Give it time to leave native callback
-    // dispatch before this thread releases the operation and its final handler reference.
-    thread::sleep(PROCESS_ACTIVATION_RELEASE_DELAY);
-    result.map_err(|error| format!("PROCESS_LOOPBACK_ACTIVATION_FAILED: {error}"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -969,9 +715,7 @@ fn capture_client(
                 SampleFlowState::Silent,
                 Some(route),
                 Some(source_name.to_string()),
-                Some(if route == CaptureRoute::RekordboxProcess {
-                    "Rekordbox audio client is connected but no signal is flowing. If using ASIO, enable PC MASTER OUT or select its Windows output.".to_string()
-                } else if route == CaptureRoute::AutomaticOutput {
+                Some(if route == CaptureRoute::AutomaticOutput {
                     format!("No music detected on {source_name}; checking the other Windows outputs. If Rekordbox uses ASIO, enable PC MASTER OUT.")
                 } else {
                     "Audio client is connected but the selected output is silent".to_string()
@@ -985,10 +729,7 @@ fn capture_client(
         ) {
             let _ = unsafe { client.Stop() };
             return Err(match route_policy {
-                RoutePolicy::Process => {
-                    "Rekordbox process capture produced no live samples".to_string()
-                }
-                RoutePolicy::DefaultFallback => {
+                RoutePolicy::AutomaticOutput => {
                     "Windows output remained silent; checking another output".to_string()
                 }
                 RoutePolicy::SelectedOutput => {
@@ -1120,16 +861,16 @@ fn pcm_format(bits: u16) -> Result<SampleFormat, String> {
     }
 }
 
-fn find_rekordbox_processes() -> Vec<ProcessCandidate> {
+fn rekordbox_process_count() -> usize {
     unsafe {
         let Ok(snapshot) = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) else {
-            return Vec::new();
+            return 0;
         };
         let mut entry = PROCESSENTRY32W {
             dwSize: size_of::<PROCESSENTRY32W>() as u32,
             ..Default::default()
         };
-        let mut matches = Vec::new();
+        let mut matches = 0_usize;
         if Process32FirstW(snapshot, &mut entry).is_ok() {
             loop {
                 let end = entry
@@ -1139,11 +880,7 @@ fn find_rekordbox_processes() -> Vec<ProcessCandidate> {
                     .unwrap_or(entry.szExeFile.len());
                 let executable = String::from_utf16_lossy(&entry.szExeFile[..end]).to_lowercase();
                 if executable == "rekordbox.exe" {
-                    matches.push(ProcessCandidate {
-                        pid: entry.th32ProcessID,
-                        parent_pid: entry.th32ParentProcessID,
-                        root: true,
-                    });
+                    matches = matches.saturating_add(1);
                 }
                 if Process32NextW(snapshot, &mut entry).is_err() {
                     break;
@@ -1151,14 +888,6 @@ fn find_rekordbox_processes() -> Vec<ProcessCandidate> {
             }
         }
         let _ = CloseHandle(snapshot);
-        let pids = matches
-            .iter()
-            .map(|candidate| candidate.pid)
-            .collect::<Vec<_>>();
-        for candidate in &mut matches {
-            candidate.root = !pids.contains(&candidate.parent_pid);
-        }
-        matches.sort_by_key(|candidate| (!candidate.root, candidate.pid));
         matches
     }
 }

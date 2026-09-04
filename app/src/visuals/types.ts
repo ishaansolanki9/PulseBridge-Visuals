@@ -175,7 +175,7 @@ export interface DiagnosticReport {
 
 export const defaultSettings: VisualSettings = {
   displayId: 0,
-  audioSourceId: "process:auto",
+  audioSourceId: "output:auto",
   pcmBufferSeconds: 10,
   style: "auto",
   intensity: "balanced",

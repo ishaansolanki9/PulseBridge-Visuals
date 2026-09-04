@@ -2,9 +2,9 @@
 
 ## Capture
 
-On Windows, PulseBridge enumerates every `rekordbox.exe` candidate, sorts root processes before descendants and PIDs deterministically, and uses `PROCESS_LOOPBACK_MODE_INCLUDE_TARGET_PROCESS_TREE` for the **Rekordbox only** source. No device-loopback route is substituted if process capture is unavailable, so this source cannot accidentally react to another application. The asynchronous activation operation, parameters, and agile completion handler remain alive until Windows completes the callback. Windows 10 build 20348 or later is required.
+On Windows, PulseBridge detects whether `rekordbox.exe` is running but does not invoke the process-specific `ActivateAudioInterfaceAsync` path. Real-device tests repeatedly ended PulseBridge inside that native activation call with heap corruption, including after the documented agile-callback and object-lifetime repair. Normal operation therefore has no path to that API.
 
-**Automatic Windows output (all apps)** is a separate opt-in source. It probes the default render endpoint first, advances through other active endpoints after two seconds without signal, and stays on the endpoint carrying music. A render endpoint can also be selected directly. These output sources can include other applications and never claim Rekordbox isolation.
+**Automatic Windows output (all apps)** is the safe Windows default. It probes the default render endpoint first, advances through other active endpoints after two seconds without signal, and stays on the endpoint carrying music. A render endpoint can also be selected directly. These output sources can include other applications and never claim Rekordbox isolation. Persisted `process:auto` settings are migrated to `output:auto`, and the obsolete process source remains visible only as a disabled explanation.
 
 The capture client asks WASAPI for the actual shared-mode mix format. It accepts 32-bit float and 16/24/32-bit integer PCM, validates channel count/rate/block alignment, downmixes all channels safely, and uses a stateful streaming converter for the fixed 48 kHz analysis rate. A `GetBuffer` RAII guard releases each WASAPI packet exactly once on success, conversion failure, cancellation, or device failure; bounded conversion vectors are reused.
 
@@ -43,7 +43,7 @@ Freshness is separate from the feature values:
 
 Audio return fades back through the normal envelopes. The performance screen never displays capture errors.
 
-Process detection, client initialization, first packet, non-silent signal, and reactive readiness are separate states. Silence is never labeled reactive. Rekordbox-only capture retries deterministic process candidates without falling back to system audio. Automatic Windows output rotates across active output endpoints until it finds non-silent samples, then waits through a 30-second pause before resuming the search; a user-selected output remains selected. Diagnostics retain the last attempted route after their worker stops. macOS releases and recreates the selected tap or input stream if the source exits, disconnects, or changes.
+Process detection, client initialization, first packet, non-silent signal, and reactive readiness are separate states. Silence is never labeled reactive. Automatic Windows output rotates across active output endpoints until it finds non-silent samples, then waits through a 30-second pause before resuming the search; a user-selected output remains selected. Diagnostics retain the last attempted route after their worker stops. macOS releases and recreates the selected tap or input stream if the source exits, disconnects, or changes.
 
 ## Phrase direction
 

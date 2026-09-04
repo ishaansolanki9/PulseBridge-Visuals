@@ -88,4 +88,14 @@ mod tests {
         assert!(!release.claim());
         assert!(!release.claim());
     }
+
+    #[test]
+    fn windows_backend_excludes_native_process_loopback_activation() {
+        let backend = include_str!("wasapi.rs");
+        let activation_function = ["ActivateAudioInterface", "Async"].concat();
+        let process_virtual_device = ["VIRTUAL_AUDIO_DEVICE_", "PROCESS_LOOPBACK"].concat();
+
+        assert!(!backend.contains(&activation_function));
+        assert!(!backend.contains(&process_virtual_device));
+    }
 }

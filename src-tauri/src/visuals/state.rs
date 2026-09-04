@@ -2,6 +2,29 @@ use serde::{Deserialize, Serialize};
 
 use crate::analysis::VisualInputFrame;
 
+const PROCESS_AUDIO_SOURCE_ID: &str = "process:auto";
+const AUTOMATIC_WINDOWS_OUTPUT_SOURCE_ID: &str = "output:auto";
+
+fn default_audio_source_id() -> &'static str {
+    if cfg!(target_os = "windows") {
+        AUTOMATIC_WINDOWS_OUTPUT_SOURCE_ID
+    } else {
+        PROCESS_AUDIO_SOURCE_ID
+    }
+}
+
+fn sanitize_audio_source_id(source_id: String, windows: bool) -> String {
+    if source_id.is_empty() || (windows && source_id == PROCESS_AUDIO_SOURCE_ID) {
+        if windows {
+            AUTOMATIC_WINDOWS_OUTPUT_SOURCE_ID.to_string()
+        } else {
+            PROCESS_AUDIO_SOURCE_ID.to_string()
+        }
+    } else {
+        source_id
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub enum VisualStyle {
@@ -70,7 +93,7 @@ impl Default for VisualSettings {
     fn default() -> Self {
         Self {
             display_id: 0,
-            audio_source_id: "process:auto".to_string(),
+            audio_source_id: default_audio_source_id().to_string(),
             pcm_buffer_seconds: 10,
             style: VisualStyle::Auto,
             intensity: IntensityProfile::Balanced,
@@ -95,9 +118,8 @@ impl VisualSettings {
         self.brightness = self.brightness.clamp(0.25, 1.25);
         self.color_change = self.color_change.clamp(0.0, 1.5);
         self.flash_strength = self.flash_strength.clamp(0.0, 1.0);
-        if self.audio_source_id.is_empty() {
-            self.audio_source_id = "process:auto".to_string();
-        }
+        self.audio_source_id =
+            sanitize_audio_source_id(self.audio_source_id, cfg!(target_os = "windows"));
         self
     }
 }
@@ -305,6 +327,19 @@ mod tests {
         assert_eq!(settings.pcm_buffer_seconds, 30);
         assert_eq!(settings.brightness, 1.25);
         assert_eq!(settings.style, VisualStyle::Auto);
+    }
+
+    #[test]
+    fn windows_migrates_legacy_process_capture_to_safe_automatic_output() {
+        assert_eq!(
+            sanitize_audio_source_id("process:auto".to_string(), true),
+            "output:auto"
+        );
+        assert_eq!(sanitize_audio_source_id(String::new(), true), "output:auto");
+        assert_eq!(
+            sanitize_audio_source_id("process:auto".to_string(), false),
+            "process:auto"
+        );
     }
 
     #[test]

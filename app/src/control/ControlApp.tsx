@@ -218,7 +218,7 @@ export function ControlApp() {
                 onChange={(event) => changeSettings({ audioSourceId: event.target.value })}
                 disabled={runtime?.running || sources.length === 0}
               >
-                {sources.length === 0 && <option value="process:auto">Desktop package required</option>}
+                {sources.length === 0 && <option value="output:auto">Desktop package required</option>}
                 {sources.map((source) => (
                   <option key={source.id} value={source.id} disabled={!source.available}>
                     {source.name}{source.isDefault ? " · default" : ""}
@@ -448,11 +448,7 @@ function sourceMessage(source: AudioSourceInfo | undefined, native: boolean) {
   if (source.kind === "inputDevice") {
     return `Input capture ready${source.isDefault ? " · current microphone/line-in default" : ""}. macOS asks for microphone permission when it starts.`;
   }
-  if (source.kind === "rekordboxProcess" && source.name.startsWith("Rekordbox only")) {
-    return source.detected
-      ? "Rekordbox-only capture · excludes every other app. With DDJ-1000 ASIO, keep the DDJ primary and enable PC MASTER OUT."
-      : "Start Rekordbox first. This source waits for Rekordbox and never substitutes audio from another application.";
-  }
+  if (source.kind === "rekordboxProcess" && !source.available) return "Process-only capture is disabled because the Windows API caused native crashes; use Automatic Windows output.";
   if (source.kind === "rekordboxProcess" && !source.detected) return "Rekordbox is not detected. Start Rekordbox first; this source never substitutes audio from another application.";
   if (source.kind === "rekordboxProcess") return "Rekordbox-only process capture · excludes audio from every other application.";
   if (source.id === "output:auto") return "All-system capture · checks Windows outputs and may include audio from other applications.";
