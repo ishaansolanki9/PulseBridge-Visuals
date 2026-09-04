@@ -6,12 +6,12 @@ The laptop window is a compact controller. The performance window is a borderles
 
 ## What is implemented
 
-- Rekordbox process discovery with crash-safe automatic Windows output capture, and private macOS 14.2+ Core Audio taps for Rekordbox or all outgoing system audio
+- Rekordbox process and Windows Audio Session discovery that finds the render endpoint actually carrying Rekordbox, plus private macOS 14.2+ Core Audio taps for Rekordbox or all outgoing system audio
 - Negotiated WASAPI/Core Audio formats, stateful mono 48 kHz resampling, RAII packet/tap cleanup, selectable Windows output loopback, selectable macOS microphone/line-in inputs, and explicit route reporting
 - A bounded 5–30 second lock-free PCM ring buffer held only in RAM
-- 48 kHz analysis with RMS, sub/bass/mid/high energy, spectral flux, onset strength, beat pulse, rolling normalization, energy trends, and state hysteresis
+- 48 kHz analysis with RMS, sub/bass/mid/high energy, spectral flux, onset strength, rolling normalization, BPM/beat confidence, four-beat bar phase, energy trends, and state hysteresis
 - Quiet, Flow, Groove, Build, Impact, Peak, and Breakdown musical behavior
-- Auto-only direction across 26 shuffled analytic illusions, with exactly one family outside a normalized transition and at most two compatible modifiers
+- Phrase-directed Auto behavior across 26 analytic illusions, with curated scene families for intros, verses, builds, drops, breakdowns, bridges, and fills instead of cadence-based random changes
 - Spirals, wormholes, moiré interference, rotating-snakes luminance drift, impossible grids, gravity lenses, alien heads, chromatic mazes, and other motion-first illusion families
 - Adaptive and fixed palettes, Chill/Balanced/Wild profiles, opt-in flash levels, and advanced reaction controls
 - A non-fullscreen **Test connection** workflow with Audio only, Renderer only, Full startup, and Safe renderer reports; versioned JSON, readable copy, and durable unclean-exit reconstruction
@@ -20,7 +20,7 @@ The laptop window is a compact controller. The performance window is a borderles
 - Native Escape/close handling, controller Stop, and `Ctrl+Alt+Shift+F12` (Windows) or `Control+Option+Shift+F12` (macOS) emergency stop
 - Persistent settings plus unsigned NSIS (`.exe`) and macOS `.app`/`.dmg` build paths
 
-There is no generated song progression in the application. No documented live Rekordbox phrase/playhead API is currently used: structural direction is labeled **audio inferred**. The browser route remains an ambient, non-reactive appearance preview; real responsiveness begins in the desktop package with live audio.
+There is no generated song progression in the application. No documented live Rekordbox interface exposes the current deck's analyzed phrase map and playhead to PulseBridge, so the product does not pretend it has that metadata. Structural direction is labeled **audio inferred** and is driven by the captured mix, BPM confidence, bar boundaries, longer-horizon changes, and a bounded content-derived structure model. The browser route remains an ambient, non-reactive appearance preview; real responsiveness begins in the desktop package with live audio.
 
 ## Installation
 
@@ -53,7 +53,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 
 The build script installs missing Windows prerequisites when possible, verifies the project, and creates `transfer-ready\PulseBridge Visuals Setup.exe`. Run that installer; development tools are not needed after installation. The current installer is unsigned, so Windows SmartScreen may require **More info → Run anyway**.
 
-After installation, open Rekordbox before PulseBridge and select **Automatic Windows output** as the live audio source. PulseBridge checks the default render endpoint first and advances through the other active Windows outputs until it finds live audio. This stable route may also hear browsers, notifications, Spotify, and other applications on the selected output. With a DDJ-1000 on Windows, keep **DDJ-1000 ASIO** as Rekordbox's primary audio device and enable **PC MASTER OUT** so Rekordbox also creates a Windows render stream that WASAPI can capture. Direct exclusive-mode ASIO audio is outside WASAPI loopback. Run **Test connection** while a track is playing before starting fullscreen visuals.
+After installation, open Rekordbox in Performance mode, enable **PC MASTER OUT**, and play a track. Then open PulseBridge and leave **Rekordbox audio** selected. PulseBridge follows Rekordbox and any child audio helper to the Windows render endpoint that owns its audio session, then captures that endpoint through stable shared-mode WASAPI loopback. With a DDJ-1000, keep **DDJ-1000 ASIO** as Rekordbox's primary audio device; PC MASTER OUT creates the parallel Windows render stream PulseBridge needs because direct exclusive-mode ASIO is outside WASAPI loopback. The selected endpoint is a system mix, so another app routed to that same endpoint can also be heard. Run **Test connection** while the track is playing before starting fullscreen visuals.
 
 ### Local development
 
@@ -70,9 +70,9 @@ The browser build is an ambient controller preview. To run the native applicatio
 npm run tauri -- dev
 ```
 
-Windows defaults to **Automatic Windows output**, which probes the default output followed by the other active render endpoints; individual outputs remain manually selectable. Windows process-specific loopback is disabled because repeated hardware tests ended the entire process inside native activation, even after the documented callback and lifetime requirements were applied. Persisted `process:auto` selections migrate automatically to the safe output route. macOS continues to offer Rekordbox-only and all-system-output Core Audio taps on 14.2+, plus detected microphone/line-in inputs. macOS permissions are requested only when the selected route starts; if denied, enable PulseBridge under **System Settings → Privacy & Security → Screen & System Audio Recording** or **Microphone**.
+Windows defaults to **Rekordbox audio**, which uses Windows Audio Session APIs to identify the matching render endpoint before opening ordinary endpoint loopback. It reconnects when Rekordbox starts, stops, or moves endpoints. **Automatic Windows output** remains an explicit all-app fallback and individual outputs remain manually selectable. Windows process-specific loopback is disabled because repeated hardware tests ended the entire process inside native activation, even after the documented callback and lifetime requirements were applied. Persisted `process:auto` selections migrate automatically to `rekordbox:auto`. macOS continues to offer Rekordbox-only and all-system-output Core Audio taps on 14.2+, plus detected microphone/line-in inputs. macOS permissions are requested only when the selected route starts; if denied, enable PulseBridge under **System Settings → Privacy & Security → Screen & System Audio Recording** or **Microphone**.
 
-Audio capture supplies the mixed PCM signal used to derive loudness, bass, mids, highs, onsets, and musical-state estimates. It does not claim access to Rekordbox's rendered waveform graphics, individual deck/stem layers, or private phrase metadata.
+Audio capture supplies the mixed PCM signal used to derive loudness, bass, mids, highs, onsets, BPM, beat/bar timing, phrase changes, and a session-local structure signature. It does not claim access to Rekordbox's rendered waveform graphics, individual deck/stem layers, track identity, or private phrase metadata.
 
 Before fullscreen, use **Test connection** and choose a mode. The report separates process detection, capture initialization, packets, non-silent samples, reactive readiness, GPU validation, and hidden-surface presentation. **Copy readable result**, **Copy JSON**, and **Open logs folder** are available in the controller.
 
@@ -103,4 +103,4 @@ Windows and macOS CI compile, lint, test, and build platform bundles. These jobs
 - `scripts/` — Windows installer build
 - `docs/` — architecture, analysis, reliability, development, and visual language
 
-Ableton Link remains an optional timing enhancement and is not required for live audio. DMX, physical fixtures, a music player, waveform extraction, accounts, cloud services, and audio recording are intentionally out of scope.
+Rekordbox can publish tempo and beat timing through Ableton Link, but Link does not publish track identity or Rekordbox's analyzed phrase map. Direct Link integration is not bundled in this release because the available SDK requires a separate GPL/commercial licensing decision; audio-derived timing remains fully functional without it. DMX, physical fixtures, a music player, waveform extraction, accounts, cloud services, and audio recording are intentionally out of scope.

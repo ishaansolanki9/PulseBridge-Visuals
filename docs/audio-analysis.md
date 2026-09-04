@@ -4,7 +4,9 @@
 
 On Windows, PulseBridge detects whether `rekordbox.exe` is running but does not invoke the process-specific `ActivateAudioInterfaceAsync` path. Real-device tests repeatedly ended PulseBridge inside that native activation call with heap corruption, including after the documented agile-callback and object-lifetime repair. Normal operation therefore has no path to that API.
 
-**Automatic Windows output (all apps)** is the safe Windows default. It probes the default render endpoint first, advances through other active endpoints after two seconds without signal, and stays on the endpoint carrying music. A render endpoint can also be selected directly. These output sources can include other applications and never claim Rekordbox isolation. Persisted `process:auto` settings are migrated to `output:auto`, and the obsolete process source remains visible only as a disabled explanation.
+**Rekordbox audio** is the safe Windows default. PulseBridge enumerates active render endpoints, asks each endpoint's `IAudioSessionManager2` for its sessions, matches `IAudioSessionControl2::GetProcessId` against Rekordbox and its descendants, then opens normal shared-mode endpoint loopback on the match. This identifies the correct endpoint without invoking crash-prone per-process capture. It is still an endpoint mix and can include another application routed to that endpoint. Rekordbox must expose a Windows render stream; with an ASIO controller, enable PC MASTER OUT and play a track. Persisted `process:auto` settings migrate to `rekordbox:auto`.
+
+**Automatic Windows output (all apps)** remains a fallback. It checks a Rekordbox-matched endpoint first when one exists, then the default and other active endpoints, advancing after two seconds without signal. A render endpoint can also be selected directly. The obsolete process source remains visible only as a disabled explanation.
 
 The capture client asks WASAPI for the actual shared-mode mix format. It accepts 32-bit float and 16/24/32-bit integer PCM, validates channel count/rate/block alignment, downmixes all channels safely, and uses a stateful streaming converter for the fixed 48 kHz analysis rate. A `GetBuffer` RAII guard releases each WASAPI packet exactly once on success, conversion failure, cancellation, or device failure; bounded conversion vectors are reused.
 
@@ -23,7 +25,7 @@ The analysis worker uses a 2048-sample Hann FFT with a 960-sample hop (20 ms at 
 - high energy, 2500–12000 Hz
 - positive spectral flux and onset strength
 - fast and slow energy envelopes
-- onset-derived beat phase and pulse confidence
+- onset-derived BPM, beat phase/confidence/index, and four-beat bar phase
 
 Each energy channel has a bounded rolling normalizer based on recent low, median, and high percentiles. This makes reaction relative to the material instead of relying on one mastering-level threshold.
 
@@ -43,10 +45,10 @@ Freshness is separate from the feature values:
 
 Audio return fades back through the normal envelopes. The performance screen never displays capture errors.
 
-Process detection, client initialization, first packet, non-silent signal, and reactive readiness are separate states. Silence is never labeled reactive. Automatic Windows output rotates across active output endpoints until it finds non-silent samples, then waits through a 30-second pause before resuming the search; a user-selected output remains selected. Diagnostics retain the last attempted route after their worker stops. macOS releases and recreates the selected tap or input stream if the source exits, disconnects, or changes.
+Process detection, matching Windows audio session, client initialization, first packet, non-silent signal, and reactive readiness are separate states. Silence is never labeled reactive. The Rekordbox route re-discovers the session endpoint after start/stop or a prolonged signal loss. Automatic Windows output rotates across active output endpoints until it finds non-silent samples, then waits through a 30-second pause before resuming the search; a user-selected output remains selected. Diagnostics retain the last attempted route after their worker stops. macOS releases and recreates the selected tap or input stream if the source exits, disconnects, or changes.
 
 ## Phrase direction
 
-See [rekordbox-phrase-integration.md](rekordbox-phrase-integration.md). Process capture supplies Rekordbox's final mixed PCM, not its rendered waveform image or separate deck/stem layers. Because no documented live Rekordbox phrase/playhead API is used, a bounded longer-horizon provider labels its output `AudioInferred`. Phrase kinds select macro scenes; FFT/beat features only animate motion and accents inside the selected scene.
+See [rekordbox-phrase-integration.md](rekordbox-phrase-integration.md). Capture supplies Rekordbox's final mixed PCM, not its rendered waveform image or separate deck/stem layers. Because no documented live Rekordbox phrase/playhead API is used, a bounded longer-horizon provider labels its output `AudioInferred`. It learns a session-local structure signature from quantized energy, onset, spectral balance, and tempo without claiming track identity. Inferred phrase kinds select curated macro-scene groups, and transitions prefer detected four-beat boundaries; live FFT/beat features animate motion and accents inside the scene.
 
 Ableton Link is not required. Audio-derived beat timing remains the active clock so the product works with streamed or local Rekordbox playback by itself.

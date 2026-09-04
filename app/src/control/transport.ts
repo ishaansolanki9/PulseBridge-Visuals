@@ -68,6 +68,10 @@ class BrowserControlTransport implements ControlTransport {
         confidence: null,
         progress: null,
         stale: false,
+        tempoBpm: null,
+        beatConfidence: null,
+        barPhase: null,
+        structureModelReady: false,
         message: "Phrase direction is available in the desktop package",
       },
       renderer: {

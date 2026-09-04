@@ -3,11 +3,13 @@ use serde::{Deserialize, Serialize};
 use crate::analysis::VisualInputFrame;
 
 const PROCESS_AUDIO_SOURCE_ID: &str = "process:auto";
+const REKORDBOX_SESSION_SOURCE_ID: &str = "rekordbox:auto";
+#[cfg(test)]
 const AUTOMATIC_WINDOWS_OUTPUT_SOURCE_ID: &str = "output:auto";
 
 fn default_audio_source_id() -> &'static str {
     if cfg!(target_os = "windows") {
-        AUTOMATIC_WINDOWS_OUTPUT_SOURCE_ID
+        REKORDBOX_SESSION_SOURCE_ID
     } else {
         PROCESS_AUDIO_SOURCE_ID
     }
@@ -16,7 +18,7 @@ fn default_audio_source_id() -> &'static str {
 fn sanitize_audio_source_id(source_id: String, windows: bool) -> String {
     if source_id.is_empty() || (windows && source_id == PROCESS_AUDIO_SOURCE_ID) {
         if windows {
-            AUTOMATIC_WINDOWS_OUTPUT_SOURCE_ID.to_string()
+            REKORDBOX_SESSION_SOURCE_ID.to_string()
         } else {
             PROCESS_AUDIO_SOURCE_ID.to_string()
         }
@@ -330,12 +332,19 @@ mod tests {
     }
 
     #[test]
-    fn windows_migrates_legacy_process_capture_to_safe_automatic_output() {
+    fn windows_migrates_legacy_process_capture_to_safe_session_guided_output() {
         assert_eq!(
             sanitize_audio_source_id("process:auto".to_string(), true),
-            "output:auto"
+            "rekordbox:auto"
         );
-        assert_eq!(sanitize_audio_source_id(String::new(), true), "output:auto");
+        assert_eq!(
+            sanitize_audio_source_id(String::new(), true),
+            "rekordbox:auto"
+        );
+        assert_eq!(
+            sanitize_audio_source_id("output:auto".to_string(), true),
+            AUTOMATIC_WINDOWS_OUTPUT_SOURCE_ID
+        );
         assert_eq!(
             sanitize_audio_source_id("process:auto".to_string(), false),
             "process:auto"

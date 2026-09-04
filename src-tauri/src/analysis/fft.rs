@@ -86,7 +86,7 @@ impl AudioAnalyzer {
         let spectral_flux = self.flux_normalizer.normalize(flux);
         let onset_strength = spectral_flux.powf(1.3);
         let seconds = timestamp_ms as f32 / 1000.0;
-        let (beat_phase, beat_strength) = self.rhythm.update(seconds, onset_strength);
+        let rhythm = self.rhythm.update(seconds, onset_strength);
 
         FeatureFrame {
             timestamp_ms,
@@ -97,8 +97,12 @@ impl AudioAnalyzer {
             high_energy: self.high_normalizer.normalize(band_energy[3]),
             spectral_flux,
             onset_strength,
-            beat_strength,
-            beat_phase,
+            beat_strength: rhythm.beat_strength,
+            beat_phase: rhythm.beat_phase,
+            tempo_bpm: rhythm.tempo_bpm,
+            beat_confidence: rhythm.beat_confidence,
+            beat_index: rhythm.beat_index,
+            bar_phase: rhythm.bar_phase,
             energy_fast: self.energy_fast,
             energy_slow: self.energy_slow,
         }

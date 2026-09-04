@@ -95,8 +95,11 @@ export function ControlApp() {
   );
   const selectedSource = sources.find((source) => source.id === settings.audioSourceId);
   const rekordboxSource = sources.find((source) => source.kind === "rekordboxProcess");
+  const rekordboxSessionSource = sources.find((source) => source.kind === "rekordboxSession");
+  const rekordboxDetected = Boolean(runtime?.audio.rekordboxDetected || rekordboxSource?.detected);
+  const rekordboxSessionDetected = Boolean(runtime?.audio.rekordboxSessionDetected || rekordboxSessionSource?.detected);
   const canStart = Boolean(isNativeApp && activeDisplay && selectedSource?.available);
-  const status = runtimeStatus(runtime);
+  const status = runtimeStatus(runtime, rekordboxDetected, rekordboxSessionDetected);
   const fullRangeDial = settings.intensity === "wild";
 
   const changeSettings = (change: Partial<VisualSettings>) => {
@@ -218,7 +221,7 @@ export function ControlApp() {
                 onChange={(event) => changeSettings({ audioSourceId: event.target.value })}
                 disabled={runtime?.running || sources.length === 0}
               >
-                {sources.length === 0 && <option value="output:auto">Desktop package required</option>}
+                {sources.length === 0 && <option value="rekordbox:auto">Desktop package required</option>}
                 {sources.map((source) => (
                   <option key={source.id} value={source.id} disabled={!source.available}>
                     {source.name}{source.isDefault ? " · default" : ""}
@@ -236,12 +239,15 @@ export function ControlApp() {
         </div>
 
         <div className="diagnostic-grid" aria-label="Live connection diagnostics">
-          <DiagnosticItem label="Rekordbox process" value={runtime?.audio.rekordboxDetected || rekordboxSource?.detected ? "Detected" : "Not detected"} tone={runtime?.audio.rekordboxDetected || rekordboxSource?.detected ? "good" : "waiting"} />
+          <DiagnosticItem label="Rekordbox process" value={rekordboxDetected ? "Detected" : "Not detected"} tone={rekordboxDetected ? "good" : "waiting"} />
+          {rekordboxSessionSource && <DiagnosticItem label="Rekordbox audio session" value={rekordboxSessionDetected ? "Found" : rekordboxDetected ? "Waiting for PC MASTER OUT" : "Not detected"} tone={rekordboxSessionDetected ? "good" : rekordboxDetected ? "warning" : "waiting"} />}
           <DiagnosticItem label="Capture client" value={runtime?.audio.captureInitialized ? "Initialized" : runtime?.audio.state === "connecting" ? "Initializing" : "Not initialized"} tone={runtime?.audio.captureInitialized ? "good" : "waiting"} />
           <DiagnosticItem label="Audio route" value={audioRouteLabel(runtime)} tone={runtime?.audio.route !== "none" ? "good" : "waiting"} />
           <DiagnosticItem label="Sample flow" value={sampleFlowLabel(runtime)} tone={runtime?.audio.sampleFlow === "flowing" ? "good" : runtime?.audio.sampleFlow === "silent" ? "warning" : "waiting"} />
           <DiagnosticItem label="Reactive ready" value={runtime?.audio.reactiveReady ? "Ready" : "Waiting"} tone={runtime?.audio.reactiveReady ? "good" : "waiting"} />
+          <DiagnosticItem label="Musical timing" value={musicalTimingLabel(runtime)} tone={(runtime?.phrase.beatConfidence ?? 0) >= 0.55 ? "good" : runtime?.reactive ? "info" : "waiting"} />
           <DiagnosticItem label="Phrase source" value={phraseSourceLabel(runtime)} tone={runtime?.phrase.provenance === "rekordbox" ? "good" : runtime?.phrase.provenance === "audioInferred" ? "info" : "waiting"} />
+          <DiagnosticItem label="Structure model" value={runtime?.phrase.structureModelReady ? "Ready" : runtime?.reactive ? "Learning" : "Waiting"} tone={runtime?.phrase.structureModelReady ? "good" : runtime?.reactive ? "info" : "waiting"} />
           <DiagnosticItem label="Renderer" value={rendererLabel(runtime)} tone={runtime?.renderer.state === "running" ? "good" : runtime?.renderer.state === "failed" ? "warning" : "waiting"} />
         </div>
 
@@ -396,11 +402,13 @@ function RangeSetting({ label, value, min, max, onChange, disabled = false }: { 
   );
 }
 
-function runtimeStatus(runtime: RuntimeSnapshot | null) {
+function runtimeStatus(runtime: RuntimeSnapshot | null, rekordboxDetected: boolean, rekordboxSessionDetected: boolean) {
   if (!runtime) return { label: "Checking", tone: "idle" };
   if (runtime.lifecycle === "starting") return { label: "Starting", tone: "warning" };
   if (runtime.lifecycle === "failed") return { label: "Start failed", tone: "warning" };
-  if (!runtime.running) return { label: "Ready", tone: "idle" };
+  if (!runtime.running && rekordboxSessionDetected) return { label: "Rekordbox ready", tone: "live" };
+  if (!runtime.running && rekordboxDetected) return { label: "Rekordbox detected", tone: "idle" };
+  if (!runtime.running) return { label: "Ready · start Rekordbox", tone: "idle" };
   if (runtime.outputMode === "black") return { label: "Black screen", tone: "warning" };
   if (runtime.audio.state === "recovering" || runtime.audio.state === "connecting") return { label: "Reconnecting", tone: "warning" };
   if (runtime.reactive) return { label: "Audio reactive", tone: "live" };
@@ -410,6 +418,7 @@ function runtimeStatus(runtime: RuntimeSnapshot | null) {
 function audioRouteLabel(runtime: RuntimeSnapshot | null) {
   if (!runtime) return "Checking";
   if (runtime.audio.route === "rekordboxProcess") return "Rekordbox process";
+  if (runtime.audio.route === "rekordboxSessionOutput") return runtime.audio.sourceName ? `Rekordbox · ${runtime.audio.sourceName}` : "Rekordbox audio session";
   if (runtime.audio.route === "selectedOutput") return runtime.audio.sourceName ?? "Selected output";
   if (runtime.audio.route === "automaticOutput") return runtime.audio.sourceName ? `All apps · ${runtime.audio.sourceName}` : "Automatic Windows output";
   if (runtime.audio.route === "defaultOutputFallback") return runtime.audio.sourceName ? `Auto · ${runtime.audio.sourceName}` : "Automatic Windows output";
@@ -434,6 +443,12 @@ function phraseSourceLabel(runtime: RuntimeSnapshot | null) {
   return "Unavailable";
 }
 
+function musicalTimingLabel(runtime: RuntimeSnapshot | null) {
+  if (!runtime?.phrase.tempoBpm) return runtime?.reactive ? "Listening for beat" : "Unavailable";
+  const confidence = Math.round((runtime.phrase.beatConfidence ?? 0) * 100);
+  return `${runtime.phrase.tempoBpm.toFixed(1)} BPM · ${confidence}% lock`;
+}
+
 function rendererLabel(runtime: RuntimeSnapshot | null) {
   if (!runtime) return "Checking";
   if (runtime.renderer.state === "running") return `${runtime.renderer.backend ?? "GPU"}${runtime.renderer.softwareFallback ? " · software" : ""}`;
@@ -448,10 +463,13 @@ function sourceMessage(source: AudioSourceInfo | undefined, native: boolean) {
   if (source.kind === "inputDevice") {
     return `Input capture ready${source.isDefault ? " · current microphone/line-in default" : ""}. macOS asks for microphone permission when it starts.`;
   }
+  if (source.kind === "rekordboxSession" && source.detected) return "Found Rekordbox's Windows audio session; PulseBridge will capture its endpoint through stable loopback. Other apps on that endpoint may also be audible.";
+  if (source.kind === "rekordboxSession" && source.available) return "Rekordbox is running but has no Windows audio session yet. Enable PC MASTER OUT in Performance mode, then play a track.";
+  if (source.kind === "rekordboxSession") return "Start Rekordbox, switch to Performance mode, and enable PC MASTER OUT.";
   if (source.kind === "rekordboxProcess" && !source.available) return "Process-only capture is disabled because the Windows API caused native crashes; use Automatic Windows output.";
   if (source.kind === "rekordboxProcess" && !source.detected) return "Rekordbox is not detected. Start Rekordbox first; this source never substitutes audio from another application.";
   if (source.kind === "rekordboxProcess") return "Rekordbox-only process capture · excludes audio from every other application.";
-  if (source.id === "output:auto") return "All-system capture · checks Windows outputs and may include audio from other applications.";
+  if (source.id === "output:auto") return "Rekordbox-aware system capture · checks its audio-session endpoint first, then other Windows outputs. Other apps may be included.";
   if (source.id === "output:default") return "System-audio capture ready · listens to everything playing through macOS speakers/output.";
   return `Output loopback ready${source.isDefault ? " · current system default" : ""}.`;
 }
@@ -460,7 +478,7 @@ function launchHint(runtime: RuntimeSnapshot | null, source: AudioSourceInfo | u
   if (runtime?.running) return runtime.audio.message ?? `${runtime.audio.state} · full screen`;
   if (runtime?.lifecycle === "failed") return "The controller stayed open · retry or inspect the diagnostic log";
   if (!native) return "Ambient preview only here · live capture is in the desktop package";
-  if (!source?.available) return "Select an available Rekordbox, system-audio, or input route";
+  if (!source?.available) return source?.kind === "rekordboxSession" ? "Start Rekordbox to enable its safe audio-session route" : "Select an available Rekordbox, system-audio, or input route";
   return `${source.name} · startup waits for the first valid GPU frame`;
 }
 
@@ -473,7 +491,7 @@ function readableReport(report: DiagnosticReport) {
     `Duration: ${report.durationMs} ms`,
   ];
   if (report.failureStage && report.failureCode) lines.push(`Failure: ${report.failureStage} (${report.failureCode})`);
-  lines.push(`Audio: detected=${report.audio.processDetected}, initialized=${report.audio.captureInitialized}, packets=${report.audio.packetsReceived}, signal=${report.audio.nonSilentSamplesReceived}, reactive=${report.audio.reactiveReady}`);
+  lines.push(`Audio: process=${report.audio.processDetected}, session=${report.audio.rekordboxSessionDetected}, initialized=${report.audio.captureInitialized}, packets=${report.audio.packetsReceived}, signal=${report.audio.nonSilentSamplesReceived}, reactive=${report.audio.reactiveReady}`);
   if (report.renderer.adapter) lines.push(`Renderer: ${report.renderer.adapter} (${report.renderer.backend ?? "unknown backend"})`);
   lines.push(`Log: ${report.logPath}`);
   return lines.join("\n");

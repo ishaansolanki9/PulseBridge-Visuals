@@ -81,6 +81,7 @@ pub struct DiagnosticAppInfo {
 #[serde(rename_all = "camelCase", default)]
 pub struct DiagnosticAudioInfo {
     pub process_detected: bool,
+    pub rekordbox_session_detected: bool,
     pub capture_initialized: bool,
     pub packets_received: bool,
     pub non_silent_samples_received: bool,

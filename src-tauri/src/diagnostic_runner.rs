@@ -402,9 +402,18 @@ fn run_audio_probe(
     let process_detected = sources.iter().any(|source| {
         source.kind == crate::audio::AudioSourceKind::RekordboxProcess && source.detected
     });
+    let rekordbox_session_detected = sources.iter().any(|source| {
+        source.kind == crate::audio::AudioSourceKind::RekordboxSession && source.detected
+    });
     report.audio.process_detected = process_detected;
-    let selected_requires_rekordbox = selected
-        .is_some_and(|source| source.kind == crate::audio::AudioSourceKind::RekordboxProcess);
+    report.audio.rekordbox_session_detected = rekordbox_session_detected;
+    let selected_requires_rekordbox = selected.is_some_and(|source| {
+        matches!(
+            source.kind,
+            crate::audio::AudioSourceKind::RekordboxProcess
+                | crate::audio::AudioSourceKind::RekordboxSession
+        )
+    });
     let (discovery_status, discovery_code, discovery_message) = if process_detected {
         (
             DiagnosticStageStatus::Pass,
@@ -414,14 +423,14 @@ fn run_audio_probe(
     } else if !selected_requires_rekordbox {
         (
             DiagnosticStageStatus::Pass,
-            "NON_PROCESS_AUDIO_ROUTE_SELECTED",
-            "The selected system-output or input route does not require Rekordbox process discovery.",
+            "REKORDBOX_PROCESS_NOT_REQUIRED",
+            "The selected all-app or input route does not require Rekordbox process discovery.",
         )
     } else {
         (
             DiagnosticStageStatus::Degraded,
             "REKORDBOX_PROCESS_NOT_FOUND",
-            "Rekordbox is not running; PulseBridge will still test an honest output fallback where supported.",
+            "Rekordbox is not running. Start it before testing the live connection.",
         )
     };
     if process_detected || !selected_requires_rekordbox {
@@ -447,25 +456,83 @@ fn run_audio_probe(
         discovery_message,
         json!({ "sourceCount": sources.len() }),
     );
+
+    #[cfg(target_os = "windows")]
+    {
+        let session_started = Instant::now();
+        let session_guard = diagnostics::begin_stage(
+            "rekordbox.audioSessionDiscovery",
+            "REKORDBOX_AUDIO_SESSION_DISCOVERY_BEGIN",
+            "Finding the Windows output endpoint used by Rekordbox",
+            Value::Null,
+        );
+        let (session_status, session_code, session_message) = if rekordbox_session_detected {
+            (
+                DiagnosticStageStatus::Pass,
+                "REKORDBOX_AUDIO_SESSION_FOUND",
+                "Found the Windows output endpoint carrying Rekordbox audio.",
+            )
+        } else if !selected_requires_rekordbox {
+            (
+                DiagnosticStageStatus::Pass,
+                "REKORDBOX_AUDIO_SESSION_NOT_REQUIRED",
+                "The selected Windows route can be tested without a Rekordbox audio session.",
+            )
+        } else if process_detected {
+            (
+                DiagnosticStageStatus::Degraded,
+                "REKORDBOX_AUDIO_SESSION_NOT_FOUND",
+                "Rekordbox is running but has no capturable Windows audio session. Enable PC MASTER OUT in Performance mode and play a track.",
+            )
+        } else {
+            (
+                DiagnosticStageStatus::Degraded,
+                "REKORDBOX_AUDIO_SESSION_NOT_FOUND",
+                "No Rekordbox audio session can be discovered until Rekordbox is running.",
+            )
+        };
+        if rekordbox_session_detected || !selected_requires_rekordbox {
+            session_guard.pass(session_code, session_message, Value::Null);
+        } else {
+            session_guard.degraded(session_code, session_message, Value::Null);
+            report.verdict = DiagnosticVerdict::Degraded;
+        }
+        push_stage(
+            report,
+            "rekordbox.audioSessionDiscovery",
+            session_status,
+            session_started,
+            session_code,
+            session_message,
+            Value::Null,
+        );
+    }
     let Some(selected) = selected else {
         mark_failure(report, "audio.captureInitialization", "NO_AUDIO_SOURCE");
         return;
     };
     if !selected.available {
+        let (code, message) = if selected_requires_rekordbox && !process_detected {
+            (
+                "REKORDBOX_PROCESS_NOT_FOUND",
+                "Start Rekordbox before selecting its audio-session route.",
+            )
+        } else {
+            (
+                "AUDIO_PLATFORM_UNSUPPORTED",
+                "The selected live-audio route is unavailable on this OS version.",
+            )
+        };
         push_stage(
             report,
             "audio.captureInitialization",
             DiagnosticStageStatus::Fail,
             Instant::now(),
-            "AUDIO_PLATFORM_UNSUPPORTED",
-            "The selected live-audio route is unavailable on this OS version.",
+            code,
+            message,
             json!({ "source": selected.name }),
         );
-        mark_failure(
-            report,
-            "audio.captureInitialization",
-            "AUDIO_PLATFORM_UNSUPPORTED",
-        );
+        mark_failure(report, "audio.captureInitialization", code);
         return;
     }
 
@@ -825,6 +892,7 @@ fn status_details(status: &CaptureStatus) -> Value {
 fn audio_info(status: &CaptureStatus, process_detected: bool) -> DiagnosticAudioInfo {
     DiagnosticAudioInfo {
         process_detected,
+        rekordbox_session_detected: status.rekordbox_session_detected,
         capture_initialized: status.capture_initialized,
         packets_received: status.packets_received,
         non_silent_samples_received: status.non_silent_samples_received,
@@ -849,6 +917,9 @@ fn map_audio_failure(status: &CaptureStatus, fallback: &str) -> (String, String)
     let stable = [
         "WINDOWS_BUILD_UNSUPPORTED",
         "REKORDBOX_PROCESS_NOT_FOUND",
+        "REKORDBOX_AUDIO_SESSION_NOT_FOUND",
+        "REKORDBOX_AUDIO_SESSION_CHANGED",
+        "REKORDBOX_SESSION_CAPTURE_FAILED",
         "REKORDBOX_ONLY_CAPTURE_FAILED",
         "PROCESS_LOOPBACK_ACTIVATION_FAILED",
         "OUTPUT_LOOPBACK_ACTIVATION_FAILED",
@@ -951,6 +1022,7 @@ mod tests {
     fn process_detection_and_sample_flow_remain_separate_facts() {
         let status = CaptureStatus {
             rekordbox_detected: true,
+            rekordbox_session_detected: true,
             capture_initialized: true,
             packets_received: false,
             non_silent_samples_received: false,
@@ -959,6 +1031,7 @@ mod tests {
         };
         let info = audio_info(&status, true);
         assert!(info.process_detected);
+        assert!(info.rekordbox_session_detected);
         assert!(info.capture_initialized);
         assert!(!info.packets_received);
         assert!(!info.reactive_ready);

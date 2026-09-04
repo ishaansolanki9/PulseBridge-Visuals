@@ -24,6 +24,10 @@ pub struct FeatureFrame {
     pub onset_strength: f32,
     pub beat_strength: f32,
     pub beat_phase: f32,
+    pub tempo_bpm: f32,
+    pub beat_confidence: f32,
+    pub beat_index: u64,
+    pub bar_phase: f32,
     pub energy_fast: f32,
     pub energy_slow: f32,
 }
@@ -38,6 +42,10 @@ pub struct VisualInputFrame {
     pub highs: f32,
     pub beat_phase: f32,
     pub beat_pulse: f32,
+    pub tempo_bpm: f32,
+    pub beat_confidence: f32,
+    pub beat_index: u64,
+    pub bar_phase: f32,
     pub onset: f32,
     pub impact: f32,
     pub reactivity: f32,
@@ -54,6 +62,10 @@ impl Default for VisualInputFrame {
             highs: 0.08,
             beat_phase: 0.0,
             beat_pulse: 0.0,
+            tempo_bpm: 0.0,
+            beat_confidence: 0.0,
+            beat_index: 0,
+            bar_phase: 0.0,
             onset: 0.0,
             impact: 0.0,
             reactivity: 0.0,
@@ -92,6 +104,7 @@ impl AnalysisSnapshot {
         output.mids = mix(ambient.mids, output.mids, reactivity);
         output.highs = mix(ambient.highs, output.highs, reactivity);
         output.beat_pulse *= reactivity;
+        output.beat_confidence *= reactivity;
         output.onset *= reactivity;
         output.impact *= reactivity;
         output.reactivity = reactivity;

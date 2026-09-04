@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "camelCase")]
 pub enum AudioSourceKind {
     RekordboxProcess,
+    RekordboxSession,
     OutputDevice,
     InputDevice,
 }
@@ -39,6 +40,7 @@ pub enum CaptureRoute {
     #[default]
     None,
     RekordboxProcess,
+    RekordboxSessionOutput,
     SelectedOutput,
     AutomaticOutput,
     DefaultOutputFallback,
@@ -64,6 +66,7 @@ pub struct CaptureStatus {
     pub route: CaptureRoute,
     pub sample_flow: SampleFlowState,
     pub rekordbox_detected: bool,
+    pub rekordbox_session_detected: bool,
     pub capture_initialized: bool,
     pub packets_received: bool,
     pub non_silent_samples_received: bool,

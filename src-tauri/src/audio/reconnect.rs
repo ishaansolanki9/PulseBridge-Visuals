@@ -2,6 +2,7 @@ use std::time::Duration;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RoutePolicy {
+    RekordboxSession,
     AutomaticOutput,
     SelectedOutput,
 }
@@ -29,6 +30,8 @@ impl ReconnectPolicy {
         silence_age: Duration,
     ) -> bool {
         match route {
+            RoutePolicy::RekordboxSession if signal_was_seen => silence_age >= self.output_retry,
+            RoutePolicy::RekordboxSession => silence_age >= self.output_probe_grace,
             RoutePolicy::AutomaticOutput if signal_was_seen => silence_age >= self.output_retry,
             RoutePolicy::AutomaticOutput => silence_age >= self.output_probe_grace,
             RoutePolicy::SelectedOutput => false,
@@ -43,6 +46,8 @@ mod tests {
     #[test]
     fn reconnect_policy_distinguishes_automatic_and_selected_outputs() {
         let policy = ReconnectPolicy::default();
+        assert!(!policy.should_retry(RoutePolicy::RekordboxSession, false, Duration::from_secs(1)));
+        assert!(policy.should_retry(RoutePolicy::RekordboxSession, false, Duration::from_secs(2)));
         assert!(!policy.should_retry(RoutePolicy::AutomaticOutput, false, Duration::from_secs(1)));
         assert!(policy.should_retry(RoutePolicy::AutomaticOutput, false, Duration::from_secs(2)));
         assert!(!policy.should_retry(RoutePolicy::AutomaticOutput, true, Duration::from_secs(29)));

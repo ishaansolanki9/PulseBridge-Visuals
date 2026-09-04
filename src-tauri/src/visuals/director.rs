@@ -244,13 +244,9 @@ pub struct SceneDirector {
     last_style: VisualStyle,
     fallback_state: MusicState,
     fallback_counter: u64,
-    auto_shuffle_counter: u64,
-    last_auto_shuffle_seconds: f32,
     recent: VecDeque<(VisualFamily, Option<VisualFamily>, u64)>,
     active_modifiers: Vec<ActiveModifier>,
     last_modifier_key: Option<u64>,
-    modifier_counter: u64,
-    last_modifier_change_seconds: f32,
 }
 
 impl SceneDirector {
@@ -264,13 +260,9 @@ impl SceneDirector {
             last_style: VisualStyle::Auto,
             fallback_state: MusicState::Quiet,
             fallback_counter: 0,
-            auto_shuffle_counter: 0,
-            last_auto_shuffle_seconds: 0.0,
             recent: VecDeque::with_capacity(HISTORY_LIMIT),
             active_modifiers: Vec::with_capacity(2),
             last_modifier_key: None,
-            modifier_counter: 0,
-            last_modifier_change_seconds: 0.0,
         }
     }
 
@@ -291,7 +283,7 @@ impl SceneDirector {
         } else {
             None
         };
-        let (direction_kind, mut direction_key, reason) = if manual {
+        let (direction_kind, direction_key, reason) = if manual {
             (
                 phrase_kind.unwrap_or_else(|| phrase_for_music_state(frame.state)),
                 manual_family(style) as u64,
@@ -302,6 +294,7 @@ impl SceneDirector {
                 .stable_track_id
                 .as_deref()
                 .map(stable_hash)
+                .or(phrase.structure_signature)
                 .unwrap_or(self.session_seed);
             (
                 segment.kind,
@@ -327,25 +320,6 @@ impl SceneDirector {
                 SceneReason::InferredState,
             )
         };
-        if !manual {
-            let shuffle_seconds = match intensity {
-                IntensityProfile::Chill => 18.0,
-                IntensityProfile::Balanced => 14.0,
-                IntensityProfile::Wild => 10.0,
-            };
-            let since_shuffle = (now_seconds - self.last_auto_shuffle_seconds).max(0.0);
-            let musical_boundary = frame.impact > 0.54
-                || (frame.onset > 0.62 && frame.energy > 0.34)
-                || (frame.beat_pulse > 0.66 && frame.energy > 0.58);
-            if since_shuffle >= shuffle_seconds
-                && (musical_boundary || since_shuffle >= shuffle_seconds * 1.6)
-            {
-                self.auto_shuffle_counter = self.auto_shuffle_counter.saturating_add(1);
-                self.last_auto_shuffle_seconds = now_seconds;
-            }
-            direction_key ^= mix_seed(self.session_seed, self.auto_shuffle_counter).rotate_left(29);
-        }
-
         let desired = if manual {
             manual_family(style)
         } else {
@@ -483,23 +457,16 @@ impl SceneDirector {
         if manual || intensity == IntensityProfile::Chill {
             self.active_modifiers.clear();
         } else {
-            let rotation_seconds = if intensity == IntensityProfile::Wild {
-                7.0
-            } else {
-                16.0
-            };
-            let since_modifier = (now_seconds - self.last_modifier_change_seconds).max(0.0);
             let musical_trigger = frame.impact > 0.42
                 || frame.onset > 0.54
-                || (frame.beat_pulse > 0.58 && frame.energy > 0.48);
-            let modifier_due = since_modifier >= rotation_seconds
-                && (musical_trigger || since_modifier >= rotation_seconds * 1.5);
+                || (frame.beat_pulse > 0.58 && frame.energy > 0.48)
+                || matches!(
+                    phrase,
+                    PhraseKind::Up | PhraseKind::Chorus | PhraseKind::Fill
+                );
+            let modifier_key = direction_key;
+            let modifier_due = self.last_modifier_key != Some(modifier_key) && musical_trigger;
             if modifier_due {
-                self.modifier_counter = self.modifier_counter.saturating_add(1);
-                self.last_modifier_change_seconds = now_seconds;
-            }
-            let modifier_key = direction_key ^ self.modifier_counter.rotate_left(23);
-            if modifier_due && self.last_modifier_key != Some(modifier_key) {
                 self.last_modifier_key = Some(modifier_key);
                 let candidate =
                     modifier_for_phrase(phrase, mix_seed(self.session_seed, modifier_key));
@@ -588,8 +555,62 @@ impl SceneDirector {
     }
 }
 
-fn candidates_for_phrase(_kind: PhraseKind) -> &'static [VisualFamily] {
-    &ALL_ILLUSIONS
+fn candidates_for_phrase(kind: PhraseKind) -> &'static [VisualFamily] {
+    match kind {
+        PhraseKind::Intro | PhraseKind::Outro => &[
+            VisualFamily::GlassOrbit,
+            VisualFamily::SineInterference,
+            VisualFamily::GravityLens,
+            VisualFamily::RibbonWormhole,
+            VisualFamily::QuantumWeave,
+            VisualFamily::DiamondDrift,
+            VisualFamily::OrbitalMesh,
+            VisualFamily::EventHorizon,
+        ],
+        PhraseKind::Verse => &[
+            VisualFamily::WarpSpiral,
+            VisualFamily::InfiniteChecker,
+            VisualFamily::NeonLattice,
+            VisualFamily::TwistedStripes,
+            VisualFamily::RotatingSnakes,
+            VisualFamily::LiquidCircuit,
+            VisualFamily::ElectricTopography,
+        ],
+        PhraseKind::Up => &[
+            VisualFamily::HyperbolicTunnel,
+            VisualFamily::ChromaticMaze,
+            VisualFamily::VortexChevron,
+            VisualFamily::PolarFan,
+            VisualFamily::RadialEscalator,
+            VisualFamily::HelixPortal,
+            VisualFamily::WarpSpiral,
+        ],
+        PhraseKind::Chorus | PhraseKind::Fill => &[
+            VisualFamily::MoireRings,
+            VisualFamily::PrismVortex,
+            VisualFamily::FractalCompass,
+            VisualFamily::AlienHeads,
+            VisualFamily::ImpossibleCubes,
+            VisualFamily::NeonLattice,
+            VisualFamily::VortexChevron,
+        ],
+        PhraseKind::Down => &[
+            VisualFamily::GlassOrbit,
+            VisualFamily::GravityLens,
+            VisualFamily::SineInterference,
+            VisualFamily::EventHorizon,
+            VisualFamily::RibbonWormhole,
+            VisualFamily::DiamondDrift,
+        ],
+        PhraseKind::Bridge => &[
+            VisualFamily::QuantumWeave,
+            VisualFamily::LiquidCircuit,
+            VisualFamily::OrbitalMesh,
+            VisualFamily::ElectricTopography,
+            VisualFamily::ImpossibleCubes,
+        ],
+        PhraseKind::Unknown => &ALL_ILLUSIONS,
+    }
 }
 
 fn modifier_for_phrase(phrase: PhraseKind, key: u64) -> ModifierKind {
@@ -926,69 +947,47 @@ mod tests {
     }
 
     #[test]
-    fn automatic_shuffle_waits_for_music_then_has_a_bounded_fallback() {
+    fn automatic_scene_stays_stable_until_the_musical_phrase_changes() {
         let now = Instant::now();
         let phrase = context(now, PhraseKind::Verse, 0);
         let mut director = SceneDirector::new(17);
-        let quiet = VisualInputFrame {
+        let frame = VisualInputFrame {
             state: MusicState::Flow,
-            energy: 0.28,
-            reactivity: 1.0,
-            ..Default::default()
-        };
-        let _ = director.update(
-            0.0,
-            now,
-            quiet,
-            &phrase,
-            VisualStyle::Auto,
-            IntensityProfile::Balanced,
-        );
-        let _ = director.update(
-            15.0,
-            now,
-            quiet,
-            &phrase,
-            VisualStyle::Auto,
-            IntensityProfile::Balanced,
-        );
-        assert_eq!(director.auto_shuffle_counter, 0);
-
-        let boundary = VisualInputFrame {
             energy: 0.76,
             onset: 0.88,
             beat_pulse: 0.82,
             reactivity: 1.0,
-            ..quiet
+            ..Default::default()
         };
-        let _ = director.update(
-            15.1,
-            now,
-            boundary,
-            &phrase,
-            VisualStyle::Auto,
-            IntensityProfile::Balanced,
-        );
-        assert_eq!(director.auto_shuffle_counter, 1);
-
-        let mut fallback = SceneDirector::new(18);
-        let _ = fallback.update(
+        let first = director.update(
             0.0,
             now,
-            quiet,
+            frame,
             &phrase,
             VisualStyle::Auto,
             IntensityProfile::Balanced,
         );
-        let _ = fallback.update(
-            22.5,
+        let same_phrase = director.update(
+            60.0,
             now,
-            quiet,
+            frame,
             &phrase,
             VisualStyle::Auto,
             IntensityProfile::Balanced,
         );
-        assert_eq!(fallback.auto_shuffle_counter, 1);
+        assert_eq!(same_phrase.primary, first.primary);
+        assert!(same_phrase.secondary.is_none());
+
+        let next_phrase = context(now, PhraseKind::Chorus, 1);
+        let changed = director.update(
+            60.1,
+            now,
+            frame,
+            &next_phrase,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert!(changed.secondary.is_some() || changed.primary != first.primary);
     }
 
     #[test]

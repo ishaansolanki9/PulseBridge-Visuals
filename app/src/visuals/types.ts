@@ -12,7 +12,7 @@ export type PaletteName =
   | "warm"
   | "monochrome"
   | "rainbowFlow";
-export type AudioSourceKind = "rekordboxProcess" | "outputDevice" | "inputDevice";
+export type AudioSourceKind = "rekordboxProcess" | "rekordboxSession" | "outputDevice" | "inputDevice";
 export type CaptureState =
   | "stopped"
   | "connecting"
@@ -20,7 +20,7 @@ export type CaptureState =
   | "recovering"
   | "failed"
   | "unsupported";
-export type CaptureRoute = "none" | "rekordboxProcess" | "selectedOutput" | "automaticOutput" | "defaultOutputFallback" | "systemOutputFallback" | "selectedInput";
+export type CaptureRoute = "none" | "rekordboxProcess" | "rekordboxSessionOutput" | "selectedOutput" | "automaticOutput" | "defaultOutputFallback" | "systemOutputFallback" | "selectedInput";
 export type SampleFlowState = "unavailable" | "waiting" | "flowing" | "silent";
 export type OutputMode = "reactive" | "ambient" | "black";
 export type RuntimeLifecycle = "stopped" | "starting" | "running" | "recovering" | "failed";
@@ -67,6 +67,7 @@ export interface CaptureStatus {
   route: CaptureRoute;
   sampleFlow: SampleFlowState;
   rekordboxDetected: boolean;
+  rekordboxSessionDetected: boolean;
   captureInitialized: boolean;
   packetsReceived: boolean;
   nonSilentSamplesReceived: boolean;
@@ -91,6 +92,10 @@ export interface PhraseStatus {
   confidence: number | null;
   progress: number | null;
   stale: boolean;
+  tempoBpm: number | null;
+  beatConfidence: number | null;
+  barPhase: number | null;
+  structureModelReady: boolean;
   message: string;
 }
 
@@ -143,6 +148,7 @@ export interface DiagnosticReport {
   stages: DiagnosticStageResult[];
   audio: {
     processDetected: boolean;
+    rekordboxSessionDetected: boolean;
     captureInitialized: boolean;
     packetsReceived: boolean;
     nonSilentSamplesReceived: boolean;
@@ -175,7 +181,7 @@ export interface DiagnosticReport {
 
 export const defaultSettings: VisualSettings = {
   displayId: 0,
-  audioSourceId: "output:auto",
+  audioSourceId: "rekordbox:auto",
   pcmBufferSeconds: 10,
   style: "auto",
   intensity: "balanced",
@@ -194,6 +200,7 @@ export const stoppedCapture: CaptureStatus = {
   route: "none",
   sampleFlow: "unavailable",
   rekordboxDetected: false,
+  rekordboxSessionDetected: false,
   captureInitialized: false,
   packetsReceived: false,
   nonSilentSamplesReceived: false,
