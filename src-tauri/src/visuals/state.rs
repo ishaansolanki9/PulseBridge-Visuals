@@ -29,6 +29,19 @@ fn sanitize_audio_source_id(source_id: String, windows: bool) -> String {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum SceneSelection {
+    #[default]
+    Auto,
+    MagneticSwarm,
+    LiquidRelic,
+    ImpossibleArchitecture,
+    AuroraVeil,
+    KineticSculpture,
+    TopographicOcean,
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum VisualStyle {
     #[default]
     Auto,
@@ -80,6 +93,7 @@ pub struct VisualSettings {
     pub audio_source_id: String,
     pub pcm_buffer_seconds: u8,
     pub style: VisualStyle,
+    pub scene: SceneSelection,
     pub intensity: IntensityProfile,
     pub palette: PaletteName,
     pub flash: FlashProfile,
@@ -98,6 +112,7 @@ impl Default for VisualSettings {
             audio_source_id: default_audio_source_id().to_string(),
             pcm_buffer_seconds: 10,
             style: VisualStyle::Auto,
+            scene: SceneSelection::Auto,
             intensity: IntensityProfile::Balanced,
             palette: PaletteName::Auto,
             flash: FlashProfile::Off,

@@ -24,6 +24,12 @@ use super::{
     SceneDirector, SmoothedVisualState, VisualSettings,
 };
 
+const PERFORMANCE_SHADER: &str = concat!(
+    include_str!("../../shaders/performance.wgsl"),
+    "\n",
+    include_str!("../../shaders/spatial.wgsl")
+);
+
 const FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
 const MAX_RENDER_PIXELS: u64 = 1_920 * 1_080;
 const INTERNAL_RENDER_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
@@ -183,6 +189,7 @@ struct VisualUniforms {
     scene: [f32; 4],
     modifiers: [f32; 4],
     reactive: [f32; 4],
+    spatial: [f32; 4],
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -349,7 +356,7 @@ impl Renderer {
         let shader_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
         let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("PulseBridge performance shader"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/performance.wgsl").into()),
+            source: wgpu::ShaderSource::Wgsl(PERFORMANCE_SHADER.into()),
         });
         if let Some(error) = shader_scope.pop().await {
             let message = format!("GPU_SHADER_VALIDATION_FAILED: {error}");
@@ -484,6 +491,8 @@ impl Renderer {
         let mut last_frame = started_at;
         let mut next_frame = started_at;
         let mut smoothed = SmoothedVisualState::default();
+        let mut spatial_clock = 0.0;
+        let mut quality = super::quality::AdaptiveQuality::default();
         let mut flash_envelope = FlashEnvelope::default();
         let initial_settings = read_settings(&settings);
         let mut smoothed_palette =
@@ -526,6 +535,7 @@ impl Renderer {
                 .saturating_duration_since(last_frame)
                 .as_secs_f32()
                 .clamp(0.001, 0.1);
+            quality.observe(now.saturating_duration_since(last_frame).as_secs_f32());
             last_frame = now;
             let current_settings = read_settings(&settings);
             let output_mode_value = output_mode.load(Ordering::Acquire);
@@ -538,11 +548,38 @@ impl Renderer {
             }
             smoothed.update(frame, delta);
 
+            let phrase_context = phrase
+                .read()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .clone();
+            director.set_focus(current_settings.scene);
+            let scene = director.update(
+                elapsed,
+                now,
+                frame,
+                &phrase_context,
+                current_settings.style,
+                current_settings.intensity,
+            );
+            // Integrated GPUs reserve headroom for Rekordbox and dual-scene transitions.
+            let spatial_scene = scene.primary.is_spatial()
+                || scene.secondary.is_some_and(|family| family.is_spatial());
+            let minimum_tier = if scene.primary.is_spatial()
+                && scene.secondary.is_some_and(|family| family.is_spatial())
+            {
+                2
+            } else if scene.secondary.is_some()
+                || (spatial_scene && adapter_info.device_type != wgpu::DeviceType::DiscreteGpu)
+            {
+                1
+            } else {
+                0
+            };
             let size = window.inner_size().map_err(|error| error.to_string())?;
             let window_width = size.width.max(1);
             let window_height = size.height.max(1);
             let (render_width, render_height) =
-                performance_render_size(window_width, window_height);
+                quality.render_size(window_width, window_height, minimum_tier);
             if size.width > 0 && size.height > 0 {
                 let surface_changed = window_width != renderer.config.width
                     || window_height != renderer.config.height;
@@ -570,18 +607,6 @@ impl Renderer {
                 }
             }
 
-            let phrase_context = phrase
-                .read()
-                .unwrap_or_else(|poisoned| poisoned.into_inner())
-                .clone();
-            let scene = director.update(
-                elapsed,
-                now,
-                frame,
-                &phrase_context,
-                current_settings.style,
-                current_settings.intensity,
-            );
             let intensities = intensity_values(current_settings.intensity);
             let drive = (smoothed.drive
                 * intensity_ceiling(current_settings.intensity)
@@ -608,6 +633,8 @@ impl Renderer {
             let mid_motion = (smoothed.mid_motion * reaction_gain).clamp(0.0, 1.0);
             let high_hit = (smoothed.high_hit * reaction_gain).clamp(0.0, 1.0);
             let energy_rise = (smoothed.energy_rise * reaction_gain).clamp(0.0, 1.0);
+            spatial_clock += delta * (0.25 + drive * 0.65) * current_settings.motion * scene.motion;
+            let spatial_quality = quality.detail(minimum_tier);
             let uniforms = VisualUniforms {
                 resolution_time: [
                     renderer.render_width as f32,
@@ -679,6 +706,12 @@ impl Renderer {
                     scene.modifiers[1].strength,
                 ],
                 reactive: [bass_hit, mid_motion, high_hit, energy_rise],
+                spatial: [
+                    spatial_clock,
+                    scene.transformation * current_settings.music_reactivity.min(1.0),
+                    spatial_quality,
+                    0.0,
+                ],
             };
             let presented = renderer.render(uniforms)?;
             if presented {
@@ -988,7 +1021,7 @@ async fn probe_renderer_async(safe_mode: bool) -> Result<DiagnosticRendererInfo,
     let shader_scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
     let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
         label: Some("PulseBridge diagnostic shader"),
-        source: wgpu::ShaderSource::Wgsl(include_str!("../../shaders/performance.wgsl").into()),
+        source: wgpu::ShaderSource::Wgsl(PERFORMANCE_SHADER.into()),
     });
     if let Some(error) = shader_scope.pop().await {
         return Err(format!("GPU_SHADER_VALIDATION_FAILED: {error}"));
@@ -1118,7 +1151,7 @@ async fn request_adapter(
     ))
 }
 
-fn performance_render_size(width: u32, height: u32) -> (u32, u32) {
+pub(super) fn performance_render_size(width: u32, height: u32) -> (u32, u32) {
     let width = width.max(1);
     let height = height.max(1);
     let pixels = u64::from(width) * u64::from(height);
@@ -1162,7 +1195,7 @@ mod tests {
 
     #[test]
     fn native_performance_shader_is_valid_wgsl() {
-        let module = naga::front::wgsl::parse_str(include_str!("../../shaders/performance.wgsl"))
+        let module = naga::front::wgsl::parse_str(super::PERFORMANCE_SHADER)
             .expect("performance shader should parse");
         naga::valid::Validator::new(
             naga::valid::ValidationFlags::all(),
@@ -1193,3 +1226,7 @@ mod tests {
         assert_eq!((width, height), (1_920, 1_080));
     }
 }
+
+#[cfg(test)]
+#[path = "audition.rs"]
+mod audition;

@@ -1,4 +1,5 @@
 export type VisualStyle = "auto" | "fluid" | "waves" | "pulse" | "tunnel" | "burst";
+export type SceneSelection = "auto" | "magneticSwarm" | "liquidRelic" | "impossibleArchitecture" | "auroraVeil" | "kineticSculpture" | "topographicOcean";
 export type IntensityProfile = "chill" | "balanced" | "wild";
 export type FlashProfile = "off" | "moderate" | "high";
 export type PaletteName =
@@ -33,6 +34,7 @@ export interface VisualSettings {
   audioSourceId: string;
   pcmBufferSeconds: number;
   style: VisualStyle;
+  scene: SceneSelection;
   intensity: IntensityProfile;
   palette: PaletteName;
   flash: FlashProfile;
@@ -184,6 +186,7 @@ export const defaultSettings: VisualSettings = {
   audioSourceId: "rekordbox:auto",
   pcmBufferSeconds: 10,
   style: "auto",
+  scene: "auto",
   intensity: "balanced",
   palette: "auto",
   flash: "off",

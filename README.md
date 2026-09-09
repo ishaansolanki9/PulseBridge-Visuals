@@ -11,8 +11,10 @@ The laptop window is a compact controller. The performance window is a borderles
 - A bounded 5–30 second lock-free PCM ring buffer held only in RAM
 - 48 kHz analysis with RMS, sub/bass/mid/high energy, spectral flux, onset strength, rolling normalization, BPM/beat confidence, four-beat bar phase, energy trends, and state hysteresis
 - Quiet, Flow, Groove, Build, Impact, Peak, and Breakdown musical behavior
-- Phrase-directed Auto behavior across 26 analytic illusions, with curated scene families for intros, verses, builds, drops, breakdowns, bridges, and fills instead of cadence-based random changes
+- Phrase-directed Auto behavior across 32 scenes (26 analytic illusions plus six spatial families), with curated scene families for intros, verses, builds, drops, breakdowns, bridges, and fills instead of cadence-based random changes
 - Spirals, wormholes, moiré interference, rotating-snakes luminance drift, impossible grids, gravity lenses, alien heads, chromatic mazes, and other motion-first illusion families
+- Native 3D Magnetic Swarm, Liquid Relic, Impossible Architecture, Kinetic Sculpture, and Topographic Ocean, plus layered Aurora Veil; a controller scene selector lets you hold any new scene while it follows the music
+- Cooldown-limited expansion/reassembly, composition-aware selection, stable integrated 3D motion, and adaptive rendering with integrated-GPU headroom
 - Adaptive and fixed palettes, Chill/Balanced/Wild profiles, opt-in flash levels, and advanced reaction controls
 - A non-fullscreen **Test connection** workflow with Audio only, Renderer only, Full startup, and Safe renderer reports; versioned JSON, readable copy, and durable unclean-exit reconstruction
 - A proportional audio-drive dial plus distinct bass geometry waves, midrange bends, high-frequency color shards, energy-rise depth changes, and music-boundary scene transitions
@@ -75,6 +77,14 @@ Windows defaults to **Rekordbox audio**, which uses Windows Audio Session APIs t
 Audio capture supplies the mixed PCM signal used to derive loudness, bass, mids, highs, onsets, BPM, beat/bar timing, phrase changes, and a session-local structure signature. It does not claim access to Rekordbox's rendered waveform graphics, individual deck/stem layers, track identity, or private phrase metadata.
 
 Before fullscreen, use **Test connection** and choose a mode. The report separates process detection, capture initialization, packets, non-silent samples, reactive readiness, GPU validation, and hidden-surface presentation. **Copy readable result**, **Copy JSON**, and **Open logs folder** are available in the controller.
+
+## Trying the 0.1.3 visuals
+
+Choose **Visual scene → Auto** for the complete music-directed library, or select one of the six new scenes to hold it during playback. The **Ambient preview** remains a cheaper illustration of the original visual style; the new scenes appear in the native performance window. Scene selection can change while output is running. Flashing stays off by default.
+
+On integrated GPUs, spatial scenes render internally at up to 1280×720 and upscale to the full display. Crossfades between two spatial scenes use 540p internally; sustained missed frame deadlines can lower resolution further. Discrete GPUs can use the existing HD ceiling for a single scene. These are quality budgets, not a guarantee of 60 FPS on every GPU.
+
+A GPU-only synthetic audition and the measured release notes are described in [docs/visual-upgrade-0.1.3.md](docs/visual-upgrade-0.1.3.md).
 
 ## Verification
 

@@ -11,6 +11,7 @@ import type {
   IntensityProfile,
   OutputMode,
   PaletteName,
+  SceneSelection,
   RuntimeSnapshot,
   VisualSettings,
 } from "../visuals/types";
@@ -193,11 +194,24 @@ export function ControlApp() {
         </div>
         <div className="preview-caption">
           <span>{runtime?.running ? "Preview paused to preserve performance" : "Live response activates in the output"}</span>
-          <strong>Auto · 26 illusions</strong>
+          <strong>32 scenes · native 3D</strong>
         </div>
       </section>
 
       <section className="control-card" aria-label="Visual controls">
+        <label className="field scene-field">
+          <span>Visual scene</span>
+          <select value={settings.scene} onChange={(event) => changeSettings({ scene: event.target.value as SceneSelection })}>
+            <option value="auto">Auto · music-directed full library</option>
+            <option value="magneticSwarm">Magnetic Swarm · 3D particles</option>
+            <option value="liquidRelic">Liquid Relic · morphing sculpture</option>
+            <option value="impossibleArchitecture">Impossible Architecture · moving chambers</option>
+            <option value="auroraVeil">Aurora Veil · luminous ribbons</option>
+            <option value="kineticSculpture">Kinetic Sculpture · coordinated geometry</option>
+            <option value="topographicOcean">Topographic Ocean · traveling landscape</option>
+          </select>
+          <small>Scene selection applies to the native output. The ambient preview shows the original visual style.</small>
+        </label>
         <div className="setup-grid">
           <label className="field">
             <span>Output display</span>

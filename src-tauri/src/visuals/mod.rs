@@ -1,5 +1,6 @@
 mod director;
 mod palette;
+mod quality;
 mod renderer;
 mod state;
 
@@ -9,4 +10,6 @@ pub use renderer::{
     prepare_renderer_surface, probe_renderer, run_renderer, RendererLifecycle, RendererStatus,
 };
 pub(crate) use state::{intensity_ceiling, intensity_values, FlashEnvelope};
-pub use state::{IntensityProfile, PaletteName, SmoothedVisualState, VisualSettings, VisualStyle};
+pub use state::{
+    IntensityProfile, PaletteName, SceneSelection, SmoothedVisualState, VisualSettings, VisualStyle,
+};

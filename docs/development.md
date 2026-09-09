@@ -40,9 +40,9 @@ Core Audio process/global-output taps require macOS 14.2+. `AudioHardwareCreateP
 
 The GLSL browser shader is a quiet appearance preview and is destroyed while live output is running so it cannot compete with Rekordbox or the native GPU surface. The WGSL shader is the production renderer and must validate through the `native_performance_shader_is_valid_wgsl` test. Never feed generated rhythm into the browser to make it look reactive.
 
-Auto direction is native because it depends on live phrase/musical state, BPM confidence, four-beat boundaries, and a content-derived structure signature. Production family IDs 0–25 are declared by `VisualFamily` and dispatched by the WGSL `visual_family` switch; all 26 must remain distinct and available across the phrase-specific candidate groups. Modifier IDs 0–7 are Palette Drift, Beat Zoom, Bass Warp, High Sparkle, Echo Trails, Mirror Fold, Chromatic Split, and Impact Bloom. Scene and modifier changes must be caused by musical state/phrase boundaries or impact events, never a wall-clock random shuffle. White flashes default to Off; energetic motion must remain legible with flashes disabled.
+Auto direction is native because it depends on live phrase/musical state, BPM confidence, four-beat boundaries, and a content-derived structure signature. Production family IDs 0–31 are declared by `VisualFamily` and dispatched by the WGSL `visual_family` switch; all 32 must remain distinct and available across the phrase-specific candidate groups. Modifier IDs 0–7 are Palette Drift, Beat Zoom, Bass Warp, High Sparkle, Echo Trails, Mirror Fold, Chromatic Split, and Impact Bloom. Scene and modifier changes must be caused by musical state/phrase boundaries or impact events, never a wall-clock random shuffle. White flashes default to Off; energetic motion must remain legible with flashes disabled.
 
-Whenever WGSL visual math changes, preserve the preview's palette and luminance behavior, but keep the browser preview deliberately cheaper than the production library. The WGSL validator test and the 26-distinct-family test are mandatory.
+Whenever WGSL visual math changes, preserve the preview's palette and luminance behavior, but keep the browser preview deliberately cheaper than the production library. The WGSL validator test and the 32-distinct-scene test are mandatory.
 
 Cross-target type checking from macOS may require `llvm-rc` for Tauri's Windows resources. The real Windows build remains `scripts/build-windows.ps1`; a Rust target `cargo check` is not installer or hardware validation.
 
@@ -61,3 +61,5 @@ npm run tauri -- build --bundles app,dmg
 The macOS command requires full Xcode for DMG tooling. CI uploads unsigned artifacts; code signing/notarization and Windows Authenticode signing require credentials and are deliberately not simulated.
 
 The README contains the supported Windows build and installation steps. Keep hardware validation notes here focused on development and diagnostics.
+
+The production WGSL is the concatenation of `shaders/performance.wgsl` and `shaders/spatial.wgsl`. Keep the `VisualParams` and Rust `VisualUniforms` layouts in agreement. The added `spatial` vector holds integrated motion time, the directed transformation envelope, quality, and a reserved component. See [the 0.1.3 visual upgrade notes](visual-upgrade-0.1.3.md) for the development-only synthetic GPU audition.

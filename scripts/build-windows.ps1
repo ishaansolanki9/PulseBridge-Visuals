@@ -4,6 +4,15 @@ Set-StrictMode -Version Latest
 $ProjectRoot = Split-Path -Parent $PSScriptRoot
 Set-Location $ProjectRoot
 
+# Windows PowerShell 5.1 does not turn a native nonzero exit into an exception.
+# Never continue to an old installer after a failed check/build.
+function Invoke-Checked([scriptblock]$Command) {
+    & $Command
+    if ($LASTEXITCODE -ne 0) {
+        throw "Command failed (exit code $LASTEXITCODE): $Command"
+    }
+}
+
 function Refresh-Path {
     $machinePath = [Environment]::GetEnvironmentVariable("Path", "Machine")
     $userPath = [Environment]::GetEnvironmentVariable("Path", "User")
@@ -64,23 +73,25 @@ if (-not (Get-Command cargo -ErrorAction SilentlyContinue)) {
     throw "Cargo is not available after setup. Reopen PowerShell and run this script again."
 }
 
-rustup default stable
-rustup component add clippy rustfmt
+Invoke-Checked { rustup default stable }
+Invoke-Checked { rustup component add clippy rustfmt }
 
 Write-Host "Installing locked project dependencies..."
-npm ci
+Invoke-Checked { npm ci }
 
 Write-Host "Running frontend and native checks..."
-npm run lint
-npm run typecheck
-cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
-cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
-cargo test --manifest-path src-tauri/Cargo.toml
+Invoke-Checked { npm run lint }
+Invoke-Checked { npm run typecheck }
+Invoke-Checked { cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check }
+Invoke-Checked { cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings }
+Invoke-Checked { cargo test --manifest-path src-tauri/Cargo.toml }
 
 Write-Host "Building the self-contained Windows application and NSIS installer..."
-npm run tauri -- build --bundles nsis
+Invoke-Checked { npm run tauri -- build --bundles nsis }
 
-$installer = Get-ChildItem -Path "src-tauri\target\release\bundle\nsis" -Filter "*.exe" |
+$package = Get-Content "src-tauri\tauri.conf.json" -Raw | ConvertFrom-Json
+$expectedVersion = $package.version
+$installer = Get-ChildItem -Path "src-tauri\target\release\bundle\nsis" -Filter "*_${expectedVersion}_*.exe" |
     Sort-Object LastWriteTime -Descending |
     Select-Object -First 1
 if (-not $installer) {

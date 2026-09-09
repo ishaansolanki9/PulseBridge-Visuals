@@ -13,6 +13,7 @@ struct VisualParams {
     scene: vec4<f32>,
     modifiers: vec4<f32>,
     reactive: vec4<f32>,
+    spatial: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> params: VisualParams;
@@ -357,6 +358,7 @@ fn event_horizon(uv: vec2<f32>, time: f32) -> vec3<f32> {
 }
 
 fn visual_family(id: u32, uv: vec2<f32>, time: f32) -> vec3<f32> {
+    if id >= 26u && id <= 31u { return spatial_scene(id, uv); }
     switch id {
         case 0u: { return warp_spiral(uv, time); }
         case 1u: { return moire_rings(uv, time); }
@@ -402,140 +404,163 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let high_hit = clamp(params.reactive.z, 0.0, 1.0);
     let energy_rise = clamp(params.reactive.w, 0.0, 1.0);
 
-    let source_radius = max(length(uv), 0.001);
-    let radial_direction = uv / source_radius;
-    let bass_wave = sin(
-        source_radius * (12.0 + params.scene.z * 9.0) - params.pulse.x * TAU,
-    );
-    uv += radial_direction * bass_wave * bass_hit * (0.026 + drive * 0.046);
-    let mid_bend = vec2<f32>(
-        sin(uv.y * (4.0 + params.music.z * 4.5) + phase_time(time) * 0.7),
-        sin(uv.x * (3.4 + params.music.z * 3.8) - phase_time(time) * 0.56),
-    );
-    uv += mid_bend * mid_motion * (0.024 + params.music.z * 0.038);
-    let slice_rate = 6.0 + floor(params.music.w * 8.0);
-    let slice = floor((uv.y + 1.7) * slice_rate);
-    let slice_tick = floor(time * (6.0 + high_hit * 12.0) + params.pulse.x * 4.0);
-    uv.x += (hash21(vec2<f32>(slice, slice_tick)) - 0.5)
-        * high_hit
-        * (0.026 + drive * 0.046);
-    let onset_tick = floor(time * 10.0);
-    let onset_turn = (hash21(vec2<f32>(onset_tick, params.style_b.z * 97.0)) - 0.5)
-        * params.pulse.z
-        * (0.045 + drive * 0.055);
-    uv = rotate2(uv, onset_turn);
-
-    uv = rotate2(uv, sin(time * (0.16 + drive * 0.8)) * drive * 0.045);
-    uv *= 1.0
-        - params.pulse.y * (0.035 + drive * 0.06 + beat_zoom * 0.075)
-        - bass_hit * (0.055 + beat_zoom * 0.06)
-        - energy_rise * 0.028
-        - params.pulse.w * 0.06;
-    uv += vec2<f32>(
-        sin(uv.y * 3.2 + time * 1.1),
-        sin(uv.x * 2.8 - time * 0.9),
-    ) * (
-        params.music.y * drive * (0.035 + bass_warp * 0.07)
-        + mid_motion * (0.025 + bass_warp * 0.025)
-    );
-    uv.x = mix(uv.x, abs(uv.x) - 0.3, mirror_fold * drive * 0.7);
-
+    let spatial_uv = uv;
     let primary_id = u32(round(params.style_a.x));
     let secondary_id = u32(round(params.style_a.y));
-    var color = visual_family(primary_id, uv, time) * params.style_a.z;
-    if params.style_a.w > 0.001 {
+    let legacy_weight = select(0.0, params.style_a.z, primary_id < 26u)
+        + select(0.0, params.style_a.w, secondary_id < 26u);
+    if legacy_weight > 0.001 {
+        let source_radius = max(length(uv), 0.001);
+        let radial_direction = uv / source_radius;
+        let bass_wave = sin(
+            source_radius * (12.0 + params.scene.z * 9.0) - params.pulse.x * TAU,
+        );
+        uv += radial_direction * bass_wave * bass_hit * (0.026 + drive * 0.046);
+        let mid_bend = vec2<f32>(
+            sin(uv.y * (4.0 + params.music.z * 4.5) + phase_time(time) * 0.7),
+            sin(uv.x * (3.4 + params.music.z * 3.8) - phase_time(time) * 0.56),
+        );
+        uv += mid_bend * mid_motion * (0.024 + params.music.z * 0.038);
+        let slice_rate = 6.0 + floor(params.music.w * 8.0);
+        let slice = floor((uv.y + 1.7) * slice_rate);
+        let slice_tick = floor(time * (6.0 + high_hit * 12.0) + params.pulse.x * 4.0);
+        uv.x += (hash21(vec2<f32>(slice, slice_tick)) - 0.5)
+            * high_hit
+            * (0.026 + drive * 0.046);
+        let onset_tick = floor(time * 10.0);
+        let onset_turn = (hash21(vec2<f32>(onset_tick, params.style_b.z * 97.0)) - 0.5)
+            * params.pulse.z
+            * (0.045 + drive * 0.055);
+        uv = rotate2(uv, onset_turn);
+
+        uv = rotate2(uv, sin(time * (0.16 + drive * 0.8)) * drive * 0.045);
+        uv *= 1.0
+            - params.pulse.y * (0.035 + drive * 0.06 + beat_zoom * 0.075)
+            - bass_hit * (0.055 + beat_zoom * 0.06)
+            - energy_rise * 0.028
+            - params.pulse.w * 0.06;
+        uv += vec2<f32>(
+            sin(uv.y * 3.2 + time * 1.1),
+            sin(uv.x * 2.8 - time * 0.9),
+        ) * (
+            params.music.y * drive * (0.035 + bass_warp * 0.07)
+            + mid_motion * (0.025 + bass_warp * 0.025)
+        );
+        uv.x = mix(uv.x, abs(uv.x) - 0.3, mirror_fold * drive * 0.7);
+
+    }
+    var color = vec3<f32>(0.0);
+    if primary_id < 26u {
+        color += visual_family(primary_id, uv, time) * params.style_a.z;
+    }
+    if secondary_id < 26u && params.style_a.w > 0.001 {
         color += visual_family(secondary_id, uv, time) * params.style_a.w;
     }
+    color /= max(legacy_weight, 0.001);
 
     let vignette = 1.0 - smoothstep(0.25, 1.55, length(uv * vec2<f32>(0.7, 1.0)));
     color *= (0.32 + vignette * 0.78)
         * params.visual.w
         * (0.86 + params.pulse.y * 0.17 + bass_hit * 0.16 + energy_rise * 0.3);
-    color += palette_field(length(uv) * 0.2 + time * 0.01)
-        * params.pulse.z
-        * drive
-        * 0.16;
+    if legacy_weight > 0.001 {
+        color += palette_field(length(uv) * 0.2 + time * 0.01)
+            * params.pulse.z
+            * drive
+            * 0.16;
 
-    let response_radius = length(uv);
-    let response_angle = atan2(uv.y, uv.x);
-    let bass_front = glow(
-        response_radius - (0.12 + fract(params.pulse.x + bass_hit * 0.08) * 1.18),
-        20.0,
-    );
-    color += palette_field(response_angle / TAU + response_radius * 0.42)
-        * bass_front
-        * bass_hit
-        * (0.22 + drive * 0.32);
-    let mid_ribs = ridge(
-        (uv.x + uv.y * 0.74) * (7.0 + params.music.z * 7.0)
-            + phase_time(time) * 0.9,
-        10.0,
-    );
-    color += palette_field(uv.x * 0.21 - uv.y * 0.13 + params.music.z * 0.24)
-        * mid_ribs
-        * mid_motion
-        * (0.08 + params.music.z * 0.13);
-    let shard_count = 16.0 + floor(params.music.w * 14.0);
-    let high_ray = ridge(
-        response_angle * shard_count
-            + sin(response_radius * 7.0 - phase_time(time)) * 1.15
-            + time * (2.2 + high_hit * 3.4),
-        16.0,
-    );
-    let high_gate = 0.28
-        + ridge(
-            response_radius * 19.0 - phase_time(time) * 1.8 + params.style_b.z * TAU,
-            11.0,
-        ) * 0.72;
-    let high_shard = high_ray
-        * high_gate
-        * smoothstep(0.08, 0.34, response_radius)
-        * (1.0 - smoothstep(1.1, 1.58, response_radius));
-    color += palette_field(response_angle / TAU * 4.0 + response_radius * 0.3)
-        * high_shard
-        * high_hit
-        * (0.24 + drive * 0.24);
-    let spectral_tint = palette_field(
-        response_angle / TAU
-            + params.music.y * 0.12
-            + params.music.z * 0.28
-            + params.music.w * 0.46,
-    );
-    let color_reaction = clamp(
-        bass_hit * 0.16
-            + mid_motion * 0.12
-            + high_hit * 0.27
-            + params.pulse.z * 0.18,
-        0.0,
-        0.55,
-    );
-    color = mix(color, color * (0.52 + spectral_tint * 1.58), color_reaction);
+        let response_radius = length(uv);
+        let response_angle = atan2(uv.y, uv.x);
+        let bass_front = glow(
+            response_radius - (0.12 + fract(params.pulse.x + bass_hit * 0.08) * 1.18),
+            20.0,
+        );
+        color += palette_field(response_angle / TAU + response_radius * 0.42)
+            * bass_front
+            * bass_hit
+            * (0.22 + drive * 0.32);
+        let mid_ribs = ridge(
+            (uv.x + uv.y * 0.74) * (7.0 + params.music.z * 7.0)
+                + phase_time(time) * 0.9,
+            10.0,
+        );
+        color += palette_field(uv.x * 0.21 - uv.y * 0.13 + params.music.z * 0.24)
+            * mid_ribs
+            * mid_motion
+            * (0.08 + params.music.z * 0.13);
+        let shard_count = 16.0 + floor(params.music.w * 14.0);
+        let high_ray = ridge(
+            response_angle * shard_count
+                + sin(response_radius * 7.0 - phase_time(time)) * 1.15
+                + time * (2.2 + high_hit * 3.4),
+            16.0,
+        );
+        let high_gate = 0.28
+            + ridge(
+                response_radius * 19.0 - phase_time(time) * 1.8 + params.style_b.z * TAU,
+                11.0,
+            ) * 0.72;
+        let high_shard = high_ray
+            * high_gate
+            * smoothstep(0.08, 0.34, response_radius)
+            * (1.0 - smoothstep(1.1, 1.58, response_radius));
+        color += palette_field(response_angle / TAU * 4.0 + response_radius * 0.3)
+            * high_shard
+            * high_hit
+            * (0.24 + drive * 0.24);
+        let spectral_tint = palette_field(
+            response_angle / TAU
+                + params.music.y * 0.12
+                + params.music.z * 0.28
+                + params.music.w * 0.46,
+        );
+        let color_reaction = clamp(
+            bass_hit * 0.16
+                + mid_motion * 0.12
+                + high_hit * 0.27
+                + params.pulse.z * 0.18,
+            0.0,
+            0.55,
+        );
+        color = mix(color, color * (0.52 + spectral_tint * 1.58), color_reaction);
 
-    let sparkle = modifier_strength(3u);
-    if sparkle > 0.001 {
-        let cell = floor((uv + time * vec2<f32>(0.12, -0.08)) * 38.0);
-        let seed = hash21(cell);
-        let mask = step(0.988 - params.music.w * 0.025, seed)
-            * ridge(time * 8.0 + seed * TAU, 12.0);
-        color += palette_field(seed) * mask * sparkle * drive * 0.32;
+        let sparkle = modifier_strength(3u);
+        if sparkle > 0.001 {
+            let cell = floor((uv + time * vec2<f32>(0.12, -0.08)) * 38.0);
+            let seed = hash21(cell);
+            let mask = step(0.988 - params.music.w * 0.025, seed)
+                * ridge(time * 8.0 + seed * TAU, 12.0);
+            color += palette_field(seed) * mask * sparkle * drive * 0.32;
+        }
+
+        let trails = modifier_strength(4u);
+        if trails > 0.001 {
+            let trail = ridge((uv.x - uv.y) * 6.0 - time * (0.8 + drive * 2.0), 14.0);
+            color += palette_field(uv.x * 0.14 - time * 0.03) * trail * trails * drive * 0.14;
+        }
+
+        let chromatic = modifier_strength(6u);
+        color = mix(color, color.gbr, chromatic * drive * params.pulse.z * 0.18);
+        let impact_bloom = modifier_strength(7u);
+        let impact_level = clamp(params.effects.y, 0.0, 1.0);
+        let impact_ring = glow(length(uv) - (0.16 + impact_level * 0.92), 24.0);
+        color += palette_field(length(uv) * 0.3 + time * 0.04)
+            * impact_ring
+            * max(impact_bloom, impact_level * drive)
+            * 0.44;
+
     }
-
-    let trails = modifier_strength(4u);
-    if trails > 0.001 {
-        let trail = ridge((uv.x - uv.y) * 6.0 - time * (0.8 + drive * 2.0), 14.0);
-        color += palette_field(uv.x * 0.14 - time * 0.03) * trail * trails * drive * 0.14;
+    // Compose after the legacy treatment. Incoming 3D never snaps the outgoing
+    // scene's UVs or overlays off, and legacy effects never warp the 3D camera.
+    color *= legacy_weight;
+    let spatial_vignette = 1.0 - smoothstep(0.25, 1.55, length(spatial_uv * vec2<f32>(0.7, 1.0)));
+    let spatial_brightness = (0.32 + spatial_vignette * 0.78) * params.visual.w
+        * (0.86 + params.pulse.y * 0.17 + bass_hit * 0.16 + energy_rise * 0.3);
+    if primary_id >= 26u && params.style_a.z > 0.001 {
+        color += spatial_scene(primary_id, spatial_uv) * params.style_a.z * spatial_brightness;
     }
-
-    let chromatic = modifier_strength(6u);
-    color = mix(color, color.gbr, chromatic * drive * params.pulse.z * 0.18);
-    let impact_bloom = modifier_strength(7u);
-    let impact_level = clamp(params.effects.y, 0.0, 1.0);
-    let impact_ring = glow(length(uv) - (0.16 + impact_level * 0.92), 24.0);
-    color += palette_field(length(uv) * 0.3 + time * 0.04)
-        * impact_ring
-        * max(impact_bloom, impact_level * drive)
-        * 0.44;
-
+    if secondary_id >= 26u && params.style_a.w > 0.001 {
+        color += spatial_scene(secondary_id, spatial_uv) * params.style_a.w * spatial_brightness;
+    }
     color = mix(color, vec3<f32>(1.0), params.pulse.w * (0.54 + drive * 0.16));
     let luminance = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
     let luminance_budget = 0.7 + params.scene.w * 0.32 + drive * 0.12;

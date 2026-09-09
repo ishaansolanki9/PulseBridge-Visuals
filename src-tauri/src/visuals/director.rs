@@ -5,7 +5,7 @@ use crate::{
     phrase::{PhraseKind, PhraseProvenance, PlaybackContext},
 };
 
-use super::{IntensityProfile, PaletteName, VisualStyle};
+use super::{IntensityProfile, PaletteName, SceneSelection, VisualStyle};
 
 const HISTORY_LIMIT: usize = 8;
 const MIN_DWELL_SECONDS: f32 = 8.0;
@@ -41,9 +41,15 @@ pub enum VisualFamily {
     RadialEscalator = 23,
     ElectricTopography = 24,
     EventHorizon = 25,
+    MagneticSwarm = 26,
+    LiquidRelic = 27,
+    ImpossibleArchitecture = 28,
+    AuroraVeil = 29,
+    KineticSculpture = 30,
+    TopographicOcean = 31,
 }
 
-const ALL_ILLUSIONS: [VisualFamily; 26] = [
+const ALL_ILLUSIONS: [VisualFamily; 32] = [
     VisualFamily::WarpSpiral,
     VisualFamily::MoireRings,
     VisualFamily::InfiniteChecker,
@@ -70,6 +76,12 @@ const ALL_ILLUSIONS: [VisualFamily; 26] = [
     VisualFamily::RadialEscalator,
     VisualFamily::ElectricTopography,
     VisualFamily::EventHorizon,
+    VisualFamily::MagneticSwarm,
+    VisualFamily::LiquidRelic,
+    VisualFamily::ImpossibleArchitecture,
+    VisualFamily::AuroraVeil,
+    VisualFamily::KineticSculpture,
+    VisualFamily::TopographicOcean,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -98,6 +110,35 @@ pub struct ModifierState {
 }
 
 impl VisualFamily {
+    pub fn is_spatial(self) -> bool {
+        self as u32 >= 26
+    }
+
+    // Composition classes let Auto avoid another tunnel just after a tunnel,
+    // even when the actual shader family has a different name.
+    fn composition(self) -> u8 {
+        match self {
+            Self::MagneticSwarm | Self::LiquidRelic | Self::KineticSculpture => 0,
+            Self::ImpossibleArchitecture | Self::TopographicOcean => 1,
+            Self::AuroraVeil
+            | Self::SineInterference
+            | Self::QuantumWeave
+            | Self::ElectricTopography => 2,
+            Self::WarpSpiral
+            | Self::HyperbolicTunnel
+            | Self::RibbonWormhole
+            | Self::HelixPortal
+            | Self::RadialEscalator
+            | Self::PrismVortex
+            | Self::VortexChevron => 3,
+            Self::GlassOrbit
+            | Self::GravityLens
+            | Self::EventHorizon
+            | Self::OrbitalMesh
+            | Self::MoireRings => 4,
+            _ => 5,
+        }
+    }
     pub fn id(self) -> f32 {
         self as u32 as f32
     }
@@ -133,6 +174,7 @@ pub struct ScenePlan {
     pub modifiers: [ModifierState; 2],
     pub transition: Option<SceneTransition>,
     pub reason: SceneReason,
+    pub transformation: f32,
 }
 
 impl Default for ScenePlan {
@@ -151,6 +193,7 @@ impl Default for ScenePlan {
             modifiers: [ModifierState::default(); 2],
             transition: None,
             reason: SceneReason::Fallback,
+            transformation: 0.0,
         }
     }
 }
@@ -238,6 +281,7 @@ impl ActiveModifier {
 pub struct SceneDirector {
     session_seed: u64,
     current_primary: VisualFamily,
+    focus: Option<VisualFamily>,
     last_switch_seconds: f32,
     active_transition: Option<(VisualFamily, VisualFamily, f32, f32)>,
     last_phrase_key: Option<u64>,
@@ -247,6 +291,7 @@ pub struct SceneDirector {
     recent: VecDeque<(VisualFamily, Option<VisualFamily>, u64)>,
     active_modifiers: Vec<ActiveModifier>,
     last_modifier_key: Option<u64>,
+    spectacle: SpectacleEnvelope,
 }
 
 impl SceneDirector {
@@ -254,6 +299,7 @@ impl SceneDirector {
         Self {
             session_seed: session_seed.max(1),
             current_primary: VisualFamily::WarpSpiral,
+            focus: None,
             last_switch_seconds: -MIN_DWELL_SECONDS,
             active_transition: None,
             last_phrase_key: None,
@@ -263,7 +309,20 @@ impl SceneDirector {
             recent: VecDeque::with_capacity(HISTORY_LIMIT),
             active_modifiers: Vec::with_capacity(2),
             last_modifier_key: None,
+            spectacle: SpectacleEnvelope::default(),
         }
+    }
+
+    pub fn set_focus(&mut self, selection: SceneSelection) {
+        self.focus = match selection {
+            SceneSelection::Auto => None,
+            SceneSelection::MagneticSwarm => Some(VisualFamily::MagneticSwarm),
+            SceneSelection::LiquidRelic => Some(VisualFamily::LiquidRelic),
+            SceneSelection::ImpossibleArchitecture => Some(VisualFamily::ImpossibleArchitecture),
+            SceneSelection::AuroraVeil => Some(VisualFamily::AuroraVeil),
+            SceneSelection::KineticSculpture => Some(VisualFamily::KineticSculpture),
+            SceneSelection::TopographicOcean => Some(VisualFamily::TopographicOcean),
+        };
     }
 
     pub fn update(
@@ -275,7 +334,7 @@ impl SceneDirector {
         style: VisualStyle,
         intensity: IntensityProfile,
     ) -> ScenePlan {
-        let manual = style != VisualStyle::Auto;
+        let manual = self.focus.is_some() || style != VisualStyle::Auto;
         let phrase_fresh = phrase.provenance != PhraseProvenance::Unavailable
             && now.saturating_duration_since(phrase.updated_at) <= PHRASE_STALE_AFTER;
         let phrase_kind = if phrase_fresh {
@@ -286,7 +345,7 @@ impl SceneDirector {
         let (direction_kind, direction_key, reason) = if manual {
             (
                 phrase_kind.unwrap_or_else(|| phrase_for_music_state(frame.state)),
-                manual_family(style) as u64,
+                self.focus.unwrap_or_else(|| manual_family(style)) as u64,
                 SceneReason::ManualOverride,
             )
         } else if let Some(segment) = phrase.phrase.as_ref().filter(|_| phrase_fresh) {
@@ -321,7 +380,7 @@ impl SceneDirector {
             )
         };
         let desired = if manual {
-            manual_family(style)
+            self.focus.unwrap_or_else(|| manual_family(style))
         } else {
             self.choose_primary(direction_kind, direction_key)
         };
@@ -338,9 +397,18 @@ impl SceneDirector {
         if !first_plan
             && desired != self.current_primary
             && key_changed
+            && self.active_transition.is_none()
+            && (manual
+                || frame.beat_confidence < 0.5
+                || frame.impact > 0.65
+                || frame.bar_phase < 0.10)
             && (dwell_satisfied || manual || self.recent.is_empty())
         {
-            let duration = transition_duration(direction_kind, intensity);
+            let duration = if frame.beat_confidence < 0.5 {
+                transition_duration(direction_kind, intensity).max(2.4)
+            } else {
+                transition_duration(direction_kind, intensity)
+            };
             self.active_transition = Some((self.current_primary, desired, now_seconds, duration));
             self.last_switch_seconds = now_seconds;
             self.last_phrase_key = Some(direction_key);
@@ -366,6 +434,7 @@ impl SceneDirector {
             modifiers: [ModifierState::default(); 2],
             transition: None,
             reason,
+            transformation: self.spectacle.update(now_seconds, frame, intensity),
         };
 
         if let Some((from, to, start, duration)) = self.active_transition {
@@ -417,6 +486,19 @@ impl SceneDirector {
     fn choose_primary(&self, phrase: PhraseKind, key: u64) -> VisualFamily {
         let candidates = candidates_for_phrase(phrase);
         let start = mix_seed(self.session_seed, key) as usize % candidates.len();
+        let last_composition = self.recent.back().map(|scene| scene.0.composition());
+        for offset in 0..candidates.len() {
+            let candidate = candidates[(start + offset) % candidates.len()];
+            let recently_used = self
+                .recent
+                .iter()
+                .rev()
+                .take(4)
+                .any(|scene| scene.0 == candidate);
+            if !recently_used && Some(candidate.composition()) != last_composition {
+                return candidate;
+            }
+        }
         for offset in 0..candidates.len() {
             let candidate = candidates[(start + offset) % candidates.len()];
             let recently_used = self
@@ -558,6 +640,8 @@ impl SceneDirector {
 fn candidates_for_phrase(kind: PhraseKind) -> &'static [VisualFamily] {
     match kind {
         PhraseKind::Intro | PhraseKind::Outro => &[
+            VisualFamily::AuroraVeil,
+            VisualFamily::TopographicOcean,
             VisualFamily::GlassOrbit,
             VisualFamily::SineInterference,
             VisualFamily::GravityLens,
@@ -568,6 +652,9 @@ fn candidates_for_phrase(kind: PhraseKind) -> &'static [VisualFamily] {
             VisualFamily::EventHorizon,
         ],
         PhraseKind::Verse => &[
+            VisualFamily::MagneticSwarm,
+            VisualFamily::KineticSculpture,
+            VisualFamily::LiquidRelic,
             VisualFamily::WarpSpiral,
             VisualFamily::InfiniteChecker,
             VisualFamily::NeonLattice,
@@ -577,6 +664,8 @@ fn candidates_for_phrase(kind: PhraseKind) -> &'static [VisualFamily] {
             VisualFamily::ElectricTopography,
         ],
         PhraseKind::Up => &[
+            VisualFamily::ImpossibleArchitecture,
+            VisualFamily::MagneticSwarm,
             VisualFamily::HyperbolicTunnel,
             VisualFamily::ChromaticMaze,
             VisualFamily::VortexChevron,
@@ -586,6 +675,10 @@ fn candidates_for_phrase(kind: PhraseKind) -> &'static [VisualFamily] {
             VisualFamily::WarpSpiral,
         ],
         PhraseKind::Chorus | PhraseKind::Fill => &[
+            VisualFamily::MagneticSwarm,
+            VisualFamily::LiquidRelic,
+            VisualFamily::ImpossibleArchitecture,
+            VisualFamily::KineticSculpture,
             VisualFamily::MoireRings,
             VisualFamily::PrismVortex,
             VisualFamily::FractalCompass,
@@ -595,6 +688,9 @@ fn candidates_for_phrase(kind: PhraseKind) -> &'static [VisualFamily] {
             VisualFamily::VortexChevron,
         ],
         PhraseKind::Down => &[
+            VisualFamily::AuroraVeil,
+            VisualFamily::TopographicOcean,
+            VisualFamily::LiquidRelic,
             VisualFamily::GlassOrbit,
             VisualFamily::GravityLens,
             VisualFamily::SineInterference,
@@ -603,6 +699,8 @@ fn candidates_for_phrase(kind: PhraseKind) -> &'static [VisualFamily] {
             VisualFamily::DiamondDrift,
         ],
         PhraseKind::Bridge => &[
+            VisualFamily::TopographicOcean,
+            VisualFamily::KineticSculpture,
             VisualFamily::QuantumWeave,
             VisualFamily::LiquidCircuit,
             VisualFamily::OrbitalMesh,
@@ -646,6 +744,9 @@ fn modifier_for_phrase(phrase: PhraseKind, key: u64) -> ModifierKind {
 }
 
 fn modifier_compatible(base: VisualFamily, modifier: ModifierKind) -> bool {
+    if base.is_spatial() {
+        return modifier == ModifierKind::PaletteDrift;
+    }
     match modifier {
         ModifierKind::MirrorFold => !matches!(
             base,
@@ -991,12 +1092,12 @@ mod tests {
     }
 
     #[test]
-    fn auto_library_contains_twenty_six_distinct_illusions() {
+    fn auto_library_contains_thirty_two_distinct_scenes() {
         let distinct = ALL_ILLUSIONS
             .iter()
             .copied()
             .collect::<std::collections::HashSet<_>>();
-        assert_eq!(ALL_ILLUSIONS.len(), 26);
+        assert_eq!(ALL_ILLUSIONS.len(), 32);
         assert_eq!(distinct.len(), ALL_ILLUSIONS.len());
     }
 
@@ -1082,5 +1183,181 @@ mod tests {
         }
         .normalized();
         assert!(plan.brightness <= 0.88);
+    }
+}
+
+/// A single expansion/reassembly gesture; a sustained impact cannot retrigger it.
+#[derive(Debug)]
+pub(super) struct SpectacleEnvelope {
+    started: Option<f32>,
+    last_trigger: f32,
+    armed: bool,
+}
+impl Default for SpectacleEnvelope {
+    fn default() -> Self {
+        Self {
+            started: None,
+            last_trigger: -24.0,
+            armed: true,
+        }
+    }
+}
+impl SpectacleEnvelope {
+    pub(super) fn update(
+        &mut self,
+        time: f32,
+        frame: VisualInputFrame,
+        intensity: IntensityProfile,
+    ) -> f32 {
+        if frame.impact < 0.25 {
+            self.armed = true;
+        }
+        if frame.reactivity < 0.2 || intensity == IntensityProfile::Chill {
+            self.started = None;
+            return 0.0;
+        }
+        if self.armed
+            && frame.impact > 0.72
+            && frame.energy > 0.55
+            && frame.beat_confidence >= 0.5
+            && time - self.last_trigger >= 24.0
+        {
+            self.started = Some(time);
+            self.last_trigger = time;
+            self.armed = false;
+        }
+        self.started.map_or(0.0, |start| {
+            let age = time - start;
+            let envelope = smoothstep(age / 0.85) * (1.0 - smoothstep((age - 1.5) / 3.0));
+            envelope
+                * if intensity == IntensityProfile::Wild {
+                    1.0
+                } else {
+                    0.72
+                }
+        })
+    }
+}
+
+#[cfg(test)]
+mod spatial_tests {
+    use super::*;
+    #[test]
+    fn spectacle_requires_confidence_rearms_and_obeys_cooldown() {
+        let mut event = SpectacleEnvelope::default();
+        let mut frame = VisualInputFrame {
+            energy: 0.9,
+            impact: 1.0,
+            reactivity: 1.0,
+            beat_confidence: 0.1,
+            ..Default::default()
+        };
+        assert_eq!(event.update(0.0, frame, IntensityProfile::Wild), 0.0);
+        frame.beat_confidence = 0.9;
+        event.update(1.0, frame, IntensityProfile::Wild);
+        assert!(event.update(2.0, frame, IntensityProfile::Wild) > 0.9);
+        assert_eq!(event.update(30.0, frame, IntensityProfile::Wild), 0.0);
+        frame.impact = 0.0;
+        event.update(31.0, frame, IntensityProfile::Wild);
+        frame.impact = 1.0;
+        event.update(32.0, frame, IntensityProfile::Wild);
+        assert!(event.update(33.0, frame, IntensityProfile::Wild) > 0.9);
+        frame.impact = 0.0;
+        event.update(34.0, frame, IntensityProfile::Wild);
+        frame.impact = 1.0;
+        assert_eq!(event.update(40.0, frame, IntensityProfile::Wild), 0.0);
+        assert_eq!(event.update(60.0, frame, IntensityProfile::Chill), 0.0);
+        frame.reactivity = 0.0;
+        assert_eq!(event.update(61.0, frame, IntensityProfile::Wild), 0.0);
+    }
+    #[test]
+    fn held_scene_survives_phrases_and_can_return_to_auto() {
+        let now = std::time::Instant::now();
+        let context = PlaybackContext::default();
+        let frame = VisualInputFrame::default();
+        let mut director = SceneDirector::new(45);
+        director.set_focus(SceneSelection::LiquidRelic);
+        for time in [0.0, 10.0, 100.0] {
+            let plan = director.update(
+                time,
+                now,
+                frame,
+                &context,
+                VisualStyle::Auto,
+                IntensityProfile::Balanced,
+            );
+            assert_eq!(plan.primary, VisualFamily::LiquidRelic);
+            assert!(plan.secondary.is_none());
+        }
+        director.set_focus(SceneSelection::MagneticSwarm);
+        director.update(
+            101.0,
+            now,
+            frame,
+            &context,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        let plan = director.update(
+            105.0,
+            now,
+            frame,
+            &context,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert_eq!(plan.primary, VisualFamily::MagneticSwarm);
+        director.set_focus(SceneSelection::Auto);
+        director.update(
+            130.0,
+            now,
+            frame,
+            &context,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        let plan = director.update(
+            135.0,
+            now,
+            frame,
+            &context,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert!(!matches!(plan.reason, SceneReason::ManualOverride));
+        assert_ne!(plan.primary, VisualFamily::MagneticSwarm);
+    }
+
+    #[test]
+    fn library_is_reachable_and_composition_varies() {
+        let mut reachable = std::collections::HashSet::new();
+        for kind in [
+            PhraseKind::Intro,
+            PhraseKind::Verse,
+            PhraseKind::Up,
+            PhraseKind::Chorus,
+            PhraseKind::Down,
+            PhraseKind::Bridge,
+        ] {
+            reachable.extend(candidates_for_phrase(kind).iter().copied());
+        }
+        assert_eq!(reachable.len(), 32);
+        let mut director = SceneDirector::new(71);
+        director.remember(VisualFamily::LiquidRelic, None, 1);
+        for key in 0..50 {
+            assert_ne!(
+                director
+                    .choose_primary(PhraseKind::Chorus, key)
+                    .composition(),
+                0
+            );
+        }
+        for family in ALL_ILLUSIONS
+            .into_iter()
+            .filter(|family| family.is_spatial())
+        {
+            assert!(!modifier_compatible(family, ModifierKind::MirrorFold));
+            assert!(!modifier_compatible(family, ModifierKind::ChromaticSplit));
+        }
     }
 }
