@@ -1,5 +1,7 @@
 # PulseBridge 0.1.4: reactive line worlds
 
+Historical release notes. [Version 0.1.6](color-and-transitions-0.1.6.md) adds traveling colors, musical scene scoring, and a new transition compositor, replacing the crossfade quality policy below.
+
 This revision replaces the six restrained spatial sculptures from 0.1.3 with large, deforming line structures. Kicks launch traveling waves, mids bend and braid the geometry, and highs pluck or fracture individual strands. The response happens throughout playback; it does not wait for the old rare expansion event. White flashes are excluded from these six worlds, including when the original patterns' flash option is enabled.
 
 Try **Visual scene → Bass Web** or **Ribbon Reactor** first. The other worlds are **Shockwave Tunnel**, **Aurora Strings**, **Prism Surge**, and **Faultline**. Scene selection works during output. Auto still directs all 32 scenes at musical boundaries. Saved 0.1.3 scene IDs map to the corresponding replacement, and existing audio routes and settings remain compatible. The browser controller preview remains an ambient illustration of the original style; the actual line worlds render in the native performance output.

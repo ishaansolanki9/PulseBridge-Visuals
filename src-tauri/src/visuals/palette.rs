@@ -83,6 +83,22 @@ pub fn smooth_palette(current: &mut Palette, target: Palette, delta_seconds: f32
     }
 }
 
+/// Integrating speed avoids hue jumps when energy or the color control changes.
+#[derive(Default)]
+pub(super) struct ColorMotion {
+    phase: f32,
+}
+impl ColorMotion {
+    pub fn update(&mut self, delta: f32, drive: f32, onset: f32, amount: f32) -> f32 {
+        if delta.is_finite() && delta > 0.0 {
+            let speed = amount.clamp(0.0, 1.5)
+                * (0.055 + drive.clamp(0.0, 1.0) * 0.17 + onset.clamp(0.0, 1.0) * 0.08);
+            self.phase = (self.phase + delta * speed).rem_euclid(1.0);
+        }
+        self.phase
+    }
+}
+
 #[cfg(test)]
 fn cyclic_palette_sample(palette: Palette, value: f32) -> [f32; 4] {
     let wrapped = value.rem_euclid(1.0);
@@ -98,6 +114,24 @@ fn cyclic_palette_sample(palette: Palette, value: f32) -> [f32; 4] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn color_phase_is_continuous_and_zero_control_freezes_it() {
+        let mut clock = ColorMotion::default();
+        let first = clock.update(1.0, 0.5, 0.0, 1.0);
+        let next = clock.update(1.0 / 60.0, 1.0, 1.0, 1.5);
+        assert!(next > first && next - first < 0.01);
+        assert_eq!(clock.update(4.0, 1.0, 1.0, 0.0), next);
+        let mut slow = ColorMotion::default();
+        let mut fast = ColorMotion::default();
+        for _ in 0..30 {
+            slow.update(1.0 / 30.0, 0.7, 0.1, 1.0);
+        }
+        for _ in 0..120 {
+            fast.update(1.0 / 120.0, 0.7, 0.1, 1.0);
+        }
+        assert!((slow.phase - fast.phase).abs() < 0.00001);
+    }
 
     #[test]
     fn automatic_palette_changes_with_musical_state() {

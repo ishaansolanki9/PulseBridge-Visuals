@@ -159,6 +159,8 @@ pub struct AudioInferredPhraseProvider {
     last_bar_boundary_beat: Option<u64>,
     min_dwell: Duration,
     max_dwell: Duration,
+    texture_anchor: Option<[f32; 3]>,
+    texture_changed_since: Option<Instant>,
 }
 
 impl AudioInferredPhraseProvider {
@@ -180,6 +182,8 @@ impl AudioInferredPhraseProvider {
             last_bar_boundary_beat: None,
             min_dwell,
             max_dwell,
+            texture_anchor: None,
+            texture_changed_since: None,
         }
     }
 }
@@ -214,6 +218,22 @@ impl PhraseProvider for AudioInferredPhraseProvider {
             now.saturating_duration_since(self.candidate_since) >= Duration::from_secs(2);
         let novelty = self.novelty_score();
         let impact_boundary = frame.impact > 0.82 && novelty > 0.22;
+        let live = frame.reactivity > 0.5;
+        let texture = self.recent_texture();
+        let anchor = self.texture_anchor.get_or_insert(texture);
+        let texture_contrast: f32 = texture
+            .iter()
+            .zip(*anchor)
+            .map(|(a, b)| (a - b).abs())
+            .sum();
+        if live && frame.energy > 0.22 && texture_contrast > 0.45 {
+            self.texture_changed_since.get_or_insert(now);
+        } else {
+            self.texture_changed_since = None;
+        }
+        let texture_stable = self
+            .texture_changed_since
+            .is_some_and(|since| now.saturating_duration_since(since) >= Duration::from_secs(3));
         let bar_boundary = frame.beat_confidence >= 0.42
             && frame.beat_index.is_multiple_of(4)
             && frame.beat_phase < 0.22
@@ -221,16 +241,45 @@ impl PhraseProvider for AudioInferredPhraseProvider {
         if bar_boundary {
             self.last_bar_boundary_beat = Some(frame.beat_index);
         }
-        let timed_boundary =
-            dwell >= self.max_dwell && (bar_boundary || frame.beat_confidence < 0.42);
-        let should_change = timed_boundary
-            || (dwell >= self.min_dwell
-                && suggested != self.current_kind
-                && (impact_boundary || (candidate_stable && bar_boundary)));
+        let boundary_ready = bar_boundary || frame.beat_confidence < 0.42;
+        let timed_boundary = dwell >= self.max_dwell
+            && frame.energy > 0.28
+            && (bar_boundary || (frame.beat_confidence < 0.42 && novelty > 0.22));
+        // A real build-to-drop hit may resolve before the normal eight-second
+        // dwell. Other single transients cannot trigger this exception.
+        let (energy_sum, bass_sum, count) =
+            self.observations.iter().rev().skip(1).take(8).fold(
+                (0.0, 0.0, 0u32),
+                |(energy, bass, count), sample| {
+                    (energy + sample.energy, bass + sample.bass, count + 1)
+                },
+            );
+        let preceding_energy = energy_sum / count.max(1) as f32;
+        let preceding_bass = bass_sum / count.max(1) as f32;
+        let drop_contrast =
+            frame.energy > preceding_energy + 0.08 || frame.bass > preceding_bass + 0.15;
+        let confirmed_drop = self.current_kind == PhraseKind::Up
+            && suggested == PhraseKind::Chorus
+            && frame.state == MusicState::Impact
+            && frame.beat_confidence >= 0.6
+            && frame.energy > 0.55
+            && frame.bass > 0.48
+            && frame.impact > 0.82
+            && drop_contrast
+            && dwell >= Duration::from_secs(3);
+        let should_change = live
+            && (confirmed_drop
+                || timed_boundary
+                || (dwell >= self.min_dwell
+                    && ((suggested != self.current_kind
+                        && (impact_boundary || (candidate_stable && boundary_ready)))
+                        || (texture_stable && boundary_ready))));
         if should_change {
             self.current_kind = suggested;
             self.phrase_started_at = now;
             self.phrase_index = self.phrase_index.saturating_add(1);
+            self.texture_anchor = Some(texture);
+            self.texture_changed_since = None;
         }
 
         let position_ms = now.saturating_duration_since(self.started_at).as_millis() as u64;
@@ -264,23 +313,42 @@ impl PhraseProvider for AudioInferredPhraseProvider {
 }
 
 impl AudioInferredPhraseProvider {
+    fn recent_texture(&self) -> [f32; 3] {
+        let mut bands = [0.0; 3];
+        for observation in self.observations.iter().rev().take(4) {
+            bands[0] += observation.bass;
+            bands[1] += observation.mids;
+            bands[2] += observation.highs;
+        }
+        let total = bands.iter().sum::<f32>().max(0.001);
+        bands.map(|band| band / total)
+    }
+
     fn novelty_score(&self) -> f32 {
         if self.observations.len() < 8 {
             return 0.0;
         }
-        let midpoint = self.observations.len() / 2;
-        let (older_energy, newer_energy, newer_onset) = self.observations.iter().enumerate().fold(
-            (0.0, 0.0, 0.0),
-            |(older, newer, onset), (index, observation)| {
-                if index < midpoint {
-                    (older + observation.energy, newer, onset)
-                } else {
-                    (older, newer + observation.energy, onset + observation.onset)
-                }
-            },
-        );
+        // Compare the last two seconds with the preceding two, not two halves
+        // of a minute-long history that would react too late to a breakdown.
+        let count = self.observations.len().min(16);
+        let midpoint = count / 2;
+        let (older_energy, newer_energy, newer_onset) = self
+            .observations
+            .iter()
+            .skip(self.observations.len() - count)
+            .enumerate()
+            .fold(
+                (0.0, 0.0, 0.0),
+                |(older, newer, onset), (index, observation)| {
+                    if index < midpoint {
+                        (older + observation.energy, newer, onset)
+                    } else {
+                        (older, newer + observation.energy, onset + observation.onset)
+                    }
+                },
+            );
         let older = older_energy / midpoint as f32;
-        let newer_count = (self.observations.len() - midpoint) as f32;
+        let newer_count = (count - midpoint) as f32;
         let newer = newer_energy / newer_count;
         ((newer - older).abs() * 1.6 + newer_onset / newer_count * 0.4).clamp(0.0, 1.0)
     }
@@ -363,6 +431,97 @@ impl PhraseRouter {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn beat_frame(seconds: f32, state: MusicState, bass: f32, mids: f32) -> VisualInputFrame {
+        VisualInputFrame {
+            state,
+            energy: 0.6,
+            bass,
+            mids,
+            highs: 0.08,
+            reactivity: 1.0,
+            beat_confidence: 0.9,
+            beat_index: (seconds * 2.0) as u64,
+            beat_phase: (seconds * 2.0).fract(),
+            bar_phase: (seconds * 0.5).fract(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn sustained_band_change_creates_a_boundary_without_a_loudness_change() {
+        let start = Instant::now();
+        let mut provider = AudioInferredPhraseProvider::new(start);
+        let mut before = 0;
+        for index in 0..=84 {
+            let t = index as f32 / 4.0;
+            let (bass, mids) = if t < 16.0 { (0.9, 0.08) } else { (0.08, 0.9) };
+            let context = provider.update(
+                start + Duration::from_secs_f32(t),
+                beat_frame(t, MusicState::Groove, bass, mids),
+            );
+            let phrase = context.phrase.unwrap();
+            if t == 15.75 {
+                before = phrase.index;
+            }
+            if t == 18.0 {
+                assert_eq!(phrase.index, before, "wait for a sustained change");
+            }
+            if t == 21.0 {
+                assert!(phrase.index > before);
+                assert_eq!(phrase.kind, PhraseKind::Verse);
+            }
+        }
+    }
+
+    #[test]
+    fn a_short_fill_does_not_change_the_phrase_and_audio_loss_cannot_rotate_it() {
+        let start = Instant::now();
+        let mut provider = AudioInferredPhraseProvider::new(start);
+        let mut before = 0;
+        for index in 0..=240 {
+            let t = index as f32 / 4.0;
+            let mut frame = beat_frame(t, MusicState::Groove, 0.9, 0.08);
+            if (16.0..16.5).contains(&t) {
+                frame.bass = 0.08;
+                frame.highs = 1.0;
+            }
+            if t >= 20.0 {
+                frame = VisualInputFrame::default();
+            }
+            let phrase = provider
+                .update(start + Duration::from_secs_f32(t), frame)
+                .phrase
+                .unwrap();
+            if t == 15.75 {
+                before = phrase.index;
+            }
+            if t >= 16.0 {
+                assert_eq!(phrase.index, before);
+            }
+        }
+    }
+
+    #[test]
+    fn a_confirmed_drop_resolves_a_build_before_the_regular_dwell() {
+        let start = Instant::now();
+        let mut provider = AudioInferredPhraseProvider::new(start);
+        for index in 0..48 {
+            let t = index as f32 / 4.0;
+            provider.update(
+                start + Duration::from_secs_f32(t),
+                beat_frame(t, MusicState::Build, 0.4, 0.5),
+            );
+        }
+        assert_eq!(provider.current_kind, PhraseKind::Up);
+        let mut drop = beat_frame(12.0, MusicState::Impact, 0.95, 0.6);
+        drop.energy = 0.95;
+        drop.impact = 0.95;
+        drop.onset = 1.0;
+        let context = provider.update(start + Duration::from_secs(12), drop);
+        assert_eq!(context.phrase.unwrap().kind, PhraseKind::Chorus);
+        assert_eq!(provider.phrase_index, 2);
+    }
 
     #[test]
     fn inferred_provider_uses_bounded_history_and_dwell() {

@@ -19,12 +19,45 @@ fn recent_signal(seconds: f32) -> vec4<f32> {
 fn rotate_line(p: vec2<f32>, a: f32) -> vec2<f32> {
     return vec2<f32>(cos(a) * p.x - sin(a) * p.y, sin(a) * p.x + cos(a) * p.y);
 }
-fn strand_color(strand: f32, u: f32, high: f32) -> vec3<f32> {
-    let drift = params.spatial.x * 0.17 * params.effects.z * (1.0 + modifier_strength(0u) * 0.5);
-    let sweep = 0.5 + 0.5 * sin(strand * 0.16 + u * 3.1 + drift);
-    let base = mix(params.color_b.rgb, params.color_c.rgb, sweep);
-    return mix(base, params.color_d.rgb, clamp(high * 0.72 + 0.12 * sin(strand), 0.0, 0.86));
+fn line_hsv(color: vec3<f32>) -> vec3<f32> {
+    let brightest = max(color.r, max(color.g, color.b));
+    let darkest = min(color.r, min(color.g, color.b));
+    let chroma = brightest - darkest;
+    var hue = 0.0;
+    if chroma > 0.00001 {
+        if brightest == color.r { hue = (color.g - color.b) / chroma; }
+        else if brightest == color.g { hue = 2.0 + (color.b - color.r) / chroma; }
+        else { hue = 4.0 + (color.r - color.g) / chroma; }
+    }
+    return vec3<f32>(fract(hue / 6.0 + 1.0), chroma / max(brightest, 0.00001), brightest);
 }
+fn line_rgb(hsv: vec3<f32>) -> vec3<f32> {
+    let wheel = abs(fract(vec3<f32>(hsv.x) + vec3<f32>(0.0, 2.0 / 3.0, 1.0 / 3.0)) * 6.0 - 3.0);
+    return hsv.z * mix(vec3<f32>(1.0), clamp(wheel - 1.0, vec3<f32>(0.0), vec3<f32>(1.0)), hsv.y);
+}
+fn line_palette(coordinate: f32) -> vec3<f32> {
+    let position = fract(coordinate) * 3.0;
+    let segment = u32(position);
+    var start_color = params.color_b.rgb;
+    var end_color = params.color_c.rgb;
+    if segment == 1u { start_color = params.color_c.rgb; end_color = params.color_d.rgb; }
+    if segment == 2u { start_color = params.color_d.rgb; end_color = params.color_b.rgb; }
+    let a = line_hsv(start_color);
+    let b = line_hsv(end_color);
+    let t = smoothstep(0.0, 1.0, fract(position));
+    // Interpolate around the hue wheel: complementary palette colors stay
+    // colored as they travel, instead of mixing into a gray/white midpoint.
+    let hue_delta = fract(b.x - a.x + 0.5) - 0.5;
+    return line_rgb(vec3<f32>(fract(a.x + hue_delta * t + 1.0), mix(a.yz, b.yz, t)));
+}
+fn strand_color(strand: f32, u: f32, signal: vec4<f32>) -> vec3<f32> {
+    // Color has its own continuous clock, independent of geometry rotation.
+    // Past onsets move colored bands along the same strands they deform.
+    let response = (signal.x * 0.16 + signal.y * 0.22 + signal.z * 0.11) * params.chromatic.y;
+    let travel = params.chromatic.x + modifier_strength(0u) * 0.07;
+    return line_palette(travel + strand / 48.0 * 0.32 + u * 0.48 + response);
+}
+
 fn strand_point(family: u32, strand: f32, u: f32) -> vec3<f32> {
     let clock = params.spatial.x;
     let x = (u * 2.0 - 1.0) * 6.8;
@@ -131,7 +164,7 @@ fn vs_lines(@builtin(vertex_index) vertex: u32, @builtin(instance_index) instanc
     if signal.z > 0.25 && break_phase < signal.z * 0.18 && family != 26u { opacity *= 0.12; }
     var result: LineVertex;
     result.position = vec4<f32>(position, 0.0, 1.0);
-    result.color = strand_color(strand, u0, signal.z);
+    result.color = strand_color(strand, u0, signal);
     result.edge = side;
     result.opacity = opacity;
     return result;

@@ -10,6 +10,7 @@ struct Stage {
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
+    compositor: compositor::SceneCompositor,
     binding: wgpu::BindGroup,
     uniform: wgpu::Buffer,
 }
@@ -87,7 +88,9 @@ impl Stage {
         });
         let line_pipeline =
             create_line_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT);
+        let compositor = compositor::SceneCompositor::new(&device, &layout);
         Self {
+            compositor,
             line_pipeline,
             device,
             queue,
@@ -113,7 +116,7 @@ impl Stage {
         })
     }
     fn draw(
-        &self,
+        &mut self,
         uniforms: VisualUniforms,
         target: &wgpu::Texture,
         capture: Option<&Path>,
@@ -122,7 +125,15 @@ impl Stage {
             .write_buffer(&self.uniform, 0, bytemuck::bytes_of(&uniforms));
         let view = target.create_view(&Default::default());
         let mut encoder = self.device.create_command_encoder(&Default::default());
-        {
+        if !self.compositor.draw(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &view,
+            &self.pipeline,
+            &self.line_pipeline,
+            uniforms,
+        ) {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -272,6 +283,12 @@ fn fixture(
             smoothed.energy_rise,
         ],
         spatial: [clock, transformation, quality, 0.0],
+        chromatic: [
+            (t * 0.12).fract(),
+            1.0,
+            t * (0.08 + drive * 1.92) * 0.8,
+            0.0,
+        ],
         signal_history: [[
             smoothed.bass_hit,
             smoothed.mid_motion,
@@ -287,13 +304,15 @@ fn native_scene_audition() {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from("target/audition"));
     fs::create_dir_all(&output).unwrap();
-    let stage = pollster::block_on(Stage::new());
+    let mut stage = pollster::block_on(Stage::new());
     let capture_target = stage.target(640, 360);
     let mut report = String::from("Synthetic native audition. Same Electric palette, flashing off. Timings include queue submit + GPU wait; exclude readback and surface presentation. Not an audio integration test.\n");
     for id in 26..32 {
         let mut smoothed = SmoothedVisualState::default();
         let mut event = SpectacleEnvelope::default();
         let mut clock = 0.0;
+        let mut color_clock = super::super::palette::ColorMotion::default();
+        let mut legacy_clock = 0.0;
         let mut history = crate::visuals::reaction_history::ReactionHistory::default();
         for index in 0..180 {
             let t = index as f32 / 15.0;
@@ -312,6 +331,10 @@ fn native_scene_audition() {
                 1.0 / 15.0,
             );
             let mut uniforms = fixture(id, t, quality, (640, 360), smoothed, transformation, clock);
+            uniforms.chromatic[0] =
+                color_clock.update(1.0 / 15.0, smoothed.drive, smoothed.onset, 1.0);
+            legacy_clock += (0.08 + smoothed.drive * 1.92) * 0.8 / 15.0;
+            uniforms.chromatic[2] = legacy_clock;
             uniforms.signal_history = history.snapshot();
             uniforms.spatial[3] = history.fraction_seconds();
             stage.draw(
@@ -350,13 +373,13 @@ fn native_scene_audition() {
             report.push_str(&line);
         }
     }
-    let transition_target = stage.target(1280, 720);
+    let transition_target = stage.target(1920, 1080);
     let mut transition_timings = Vec::new();
     for index in 0..30 {
         let progress = index as f32 / 29.0;
         let mut smoothed = SmoothedVisualState::default();
         smoothed.update(synthetic_frame(8.0), 0.1);
-        let mut uniforms = fixture(27, 8.0, 0.5, (1280, 720), smoothed, 0.7, 4.0 + progress);
+        let mut uniforms = fixture(27, 8.0, 1.0, (1920, 1080), smoothed, 0.7, 4.0 + progress);
         uniforms.style_a = [27.0, 30.0, 1.0 - progress, progress];
         let ms = stage.draw(uniforms, &transition_target, None);
         if index > 4 {
@@ -364,7 +387,7 @@ fn native_scene_audition() {
         }
     }
     transition_timings.sort_by(f64::total_cmp);
-    let line = format!("Ribbon Reactor + Prism Surge transition, 1280x720, quality 0.5: median {:.2}ms, p95 {:.2}ms\n", transition_timings[12], transition_timings[23]);
+    let line = format!("Ribbon Reactor + Prism Surge transition, 1920x1080, quality 1: median {:.2}ms, p95 {:.2}ms\n", transition_timings[12], transition_timings[23]);
     eprint!("{line}");
     report.push_str(&line);
     for index in 0..60 {
@@ -411,7 +434,7 @@ fn native_line_response_audition() {
         .map(std::path::PathBuf::from)
         .unwrap_or_else(|| std::path::PathBuf::from("target/audition"));
     fs::create_dir_all(&output).unwrap();
-    let stage = pollster::block_on(Stage::new());
+    let mut stage = pollster::block_on(Stage::new());
     let target = stage.target(640, 360);
     fn distribution(path: &Path) -> Vec<f32> {
         let bytes = fs::read(path).unwrap();
@@ -492,4 +515,204 @@ fn native_line_response_audition() {
         }
     }
     fs::write(output.join("band-response.txt"), report).unwrap();
+}
+
+#[test]
+#[ignore = "requires a native GPU; isolates color travel from geometry and captures palette transitions"]
+fn native_color_audition() {
+    let output = std::env::var_os("PULSEBRIDGE_AUDITION_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("target/audition"));
+    fs::create_dir_all(&output).unwrap();
+    let mut stage = pollster::block_on(Stage::new());
+    let target = stage.target(640, 360);
+    let mut report = String::from("Fixed geometry, clock, exposure, and reactive bands. Only color phase or palette changes. Average normalized RGB change over bright line pixels.\n");
+    fn rgb(path: &Path) -> Vec<[f32; 3]> {
+        let bytes = fs::read(path).unwrap();
+        bytes[bytes.len() - 640 * 360 * 3..]
+            .chunks_exact(3)
+            .map(|pixel| {
+                pixel
+                    .try_into()
+                    .map(|p: [u8; 3]| p.map(|v| v as f32))
+                    .unwrap()
+            })
+            .collect()
+    }
+    for family in 26..32 {
+        let mut uniforms = fixture(
+            family,
+            4.0,
+            1.0,
+            (640, 360),
+            SmoothedVisualState::default(),
+            0.0,
+            2.5,
+        );
+        uniforms.visual[3] = 0.65;
+        uniforms.signal_history = [[0.6, 0.5, 0.15, 0.0]; 32];
+        uniforms.chromatic = [0.0, 1.0, 0.0, 0.0];
+        let first = output.join(format!("color-{family}-0.ppm"));
+        stage.draw(uniforms, &target, Some(&first));
+        let baseline = rgb(&first);
+        for (index, phase) in [(1, 0.33), (2, 0.66), (3, 0.0)] {
+            uniforms.chromatic[0] = phase;
+            if index == 3 {
+                let palette = palette_for(PaletteName::Sunset, MusicState::Build);
+                [
+                    uniforms.color_a,
+                    uniforms.color_b,
+                    uniforms.color_c,
+                    uniforms.color_d,
+                ] = palette;
+            }
+            let file = output.join(format!("color-{family}-{index}.ppm"));
+            stage.draw(uniforms, &target, Some(&file));
+            let mut change = 0.0;
+            let mut count = 0;
+            for (before, after) in baseline.iter().zip(rgb(&file)) {
+                let a: f32 = before.iter().sum();
+                let b: f32 = after.iter().sum();
+                if a > 90.0 && b > 90.0 {
+                    change += before
+                        .iter()
+                        .zip(after)
+                        .map(|(x, y)| (x / a - y / b).abs())
+                        .sum::<f32>();
+                    count += 1;
+                }
+            }
+            assert!(count > 1000);
+            change /= count as f32;
+            assert!(
+                change > 0.15,
+                "family {family} needs visible hue travel: {change}"
+            );
+            report.push_str(&format!(
+                "scene {family}, color step {index}: {change:.3}\n"
+            ));
+        }
+    }
+    let mut clock = super::super::palette::ColorMotion::default();
+    let mut colors = palette_for(PaletteName::Electric, MusicState::Groove);
+    for index in 0..180 {
+        let name = [
+            PaletteName::Electric,
+            PaletteName::Sunset,
+            PaletteName::Neon,
+            PaletteName::Ocean,
+        ][index / 45];
+        super::super::palette::smooth_palette(
+            &mut colors,
+            palette_for(name, MusicState::Groove),
+            1.0 / 15.0,
+        );
+        let mut uniforms = fixture(
+            27,
+            4.0,
+            1.0,
+            (640, 360),
+            SmoothedVisualState::default(),
+            0.0,
+            2.5,
+        );
+        uniforms.visual[3] = 0.65;
+        uniforms.signal_history = [[0.6, 0.5, 0.15, 0.0]; 32];
+        [
+            uniforms.color_a,
+            uniforms.color_b,
+            uniforms.color_c,
+            uniforms.color_d,
+        ] = colors;
+        uniforms.chromatic = [clock.update(1.0 / 15.0, 0.7, 0.1, 1.0), 1.0, 0.0, 0.0];
+        stage.draw(
+            uniforms,
+            &target,
+            Some(&output.join(format!("color-motion-{index:03}.ppm"))),
+        );
+    }
+    fs::write(output.join("color-response.txt"), report).unwrap();
+}
+
+#[test]
+#[ignore = "requires a native GPU; checks mixed-scene dissolve endpoints and linear image blending"]
+fn native_transition_audition() {
+    let output = std::env::var_os("PULSEBRIDGE_AUDITION_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("target/audition"));
+    fs::create_dir_all(&output).unwrap();
+    let mut stage = pollster::block_on(Stage::new());
+    let target = stage.target(640, 360);
+    let pixels = |path: &Path| {
+        let bytes = fs::read(path).unwrap();
+        bytes[bytes.len() - 640 * 360 * 3..].to_vec()
+    };
+    let mut report = String::from("Each completed frame must equal a linear-light dissolve of the two independently rendered sRGB scenes (within 2 byte values). Fixed time and audio; changed incoming variation and palette.\n");
+    for (from, to) in [(0, 27), (27, 0), (8, 26), (26, 8), (25, 30), (30, 25)] {
+        let mut smoothed = SmoothedVisualState::default();
+        smoothed.update(synthetic_frame(6.0), 0.1);
+        let from_uniforms = fixture(from, 4.0, 1.0, (640, 360), smoothed, 0.0, 2.5);
+        let mut to_uniforms = fixture(to, 4.0, 1.0, (640, 360), smoothed, 0.0, 2.5);
+        to_uniforms.style_b[2] = 0.91;
+        [
+            to_uniforms.color_a,
+            to_uniforms.color_b,
+            to_uniforms.color_c,
+            to_uniforms.color_d,
+        ] = palette_for(PaletteName::Sunset, MusicState::Build);
+        let a = output.join(format!("dissolve-{from}-{to}-before.ppm"));
+        let b = output.join(format!("dissolve-{from}-{to}-after.ppm"));
+        stage.draw(from_uniforms, &target, Some(&a));
+        stage.draw(to_uniforms, &target, Some(&b));
+        let (before, after) = (pixels(&a), pixels(&b));
+        stage.draw(from_uniforms, &target, None);
+        for (index, weight) in [(0, 0.0), (1, 0.25), (2, 0.5), (3, 0.75), (4, 1.0)] {
+            let mut mixed = to_uniforms;
+            mixed.style_a = [from as f32, to as f32, 1.0 - weight, weight];
+            let file = output.join(format!("dissolve-{from}-{to}-check-{index}.ppm"));
+            stage.draw(mixed, &target, Some(&file));
+            let actual = pixels(&file);
+            let max_error = actual
+                .iter()
+                .zip(before.iter().zip(&after))
+                .map(|(actual, (a, b))| {
+                    let decode = |value: u8| {
+                        let x = value as f32 / 255.0;
+                        if x <= 0.04045 {
+                            x / 12.92
+                        } else {
+                            ((x + 0.055) / 1.055).powf(2.4)
+                        }
+                    };
+                    let linear = decode(*a) * (1.0 - weight) + decode(*b) * weight;
+                    let encoded = if linear <= 0.0031308 {
+                        linear * 12.92
+                    } else {
+                        1.055 * linear.powf(1.0 / 2.4) - 0.055
+                    };
+                    (*actual as f32 - encoded * 255.0).abs()
+                })
+                .fold(0.0f32, f32::max);
+            assert!(
+                max_error <= 2.0,
+                "dissolve {from}->{to} at {weight}: {max_error}"
+            );
+            report.push_str(&format!(
+                "{from}->{to}, weight {weight}: max error {max_error:.1}\n"
+            ));
+        }
+        stage.draw(from_uniforms, &target, None);
+        for index in 0..60 {
+            let progress = (index as f32 / 59.0).clamp(0.0, 1.0);
+            let weight = progress.powi(3) * (progress * (progress * 6.0 - 15.0) + 10.0);
+            let mut mixed = to_uniforms;
+            mixed.style_a = [from as f32, to as f32, 1.0 - weight, weight];
+            stage.draw(
+                mixed,
+                &target,
+                Some(&output.join(format!("dissolve-{from}-{to}-{index:03}.ppm"))),
+            );
+        }
+    }
+    fs::write(output.join("transition-response.txt"), report).unwrap();
 }

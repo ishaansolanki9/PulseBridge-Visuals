@@ -1,3 +1,6 @@
+#[path = "compositor.rs"]
+mod compositor;
+
 use std::{
     sync::{
         atomic::{AtomicBool, AtomicU8, Ordering},
@@ -191,6 +194,7 @@ struct VisualUniforms {
     reactive: [f32; 4],
     spatial: [f32; 4],
     signal_history: [[f32; 4]; 32],
+    chromatic: [f32; 4],
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -244,6 +248,7 @@ struct Renderer {
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
     line_pipeline: wgpu::RenderPipeline,
+    compositor: compositor::SceneCompositor,
     uniform_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     _render_target: wgpu::Texture,
@@ -440,6 +445,7 @@ impl Renderer {
         });
         let line_pipeline =
             create_line_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT);
+        let compositor = compositor::SceneCompositor::new(&device, &bind_group_layout);
         if let Some(error) = pipeline_scope.pop().await {
             let message = format!("GPU_PIPELINE_CREATE_FAILED: {error}");
             pipeline_stage.error(
@@ -478,6 +484,7 @@ impl Renderer {
             config,
             pipeline,
             line_pipeline,
+            compositor,
             uniform_buffer,
             bind_group,
             _render_target: render_target,
@@ -497,6 +504,8 @@ impl Renderer {
         let mut next_frame = started_at;
         let mut smoothed = SmoothedVisualState::default();
         let mut spatial_clock = 0.0;
+        let mut legacy_clock = 0.0;
+        let mut color_motion = super::palette::ColorMotion::default();
         let mut signal_history = super::reaction_history::ReactionHistory::default();
         let mut quality = super::quality::AdaptiveQuality::default();
         let mut flash_envelope = FlashEnvelope::default();
@@ -567,9 +576,9 @@ impl Renderer {
                 current_settings.style,
                 current_settings.intensity,
             );
-            // Instanced lines fit the HD budget on integrated GPUs. Reserve
-            // 720p for dual-scene transitions; sustained overload still adapts.
-            let minimum_tier = u8::from(scene.secondary.is_some());
+            // Keep resolution and line width stable across a dissolve. Only
+            // sustained overload changes the adaptive quality tier.
+            let minimum_tier = 0;
             let size = window.inner_size().map_err(|error| error.to_string())?;
             let window_width = size.width.max(1);
             let window_height = size.height.max(1);
@@ -631,6 +640,13 @@ impl Renderer {
             signal_history.update([bass_hit, mid_motion, high_hit, energy_rise], delta);
             spatial_clock += delta * (0.25 + drive * 0.65) * current_settings.motion * scene.motion;
             let spatial_quality = quality.detail(minimum_tier);
+            let legacy_speed = (0.12 + drive * 1.38 + bass_hit * 0.18 + energy_rise * 0.24)
+                * intensities[0]
+                * current_settings.motion
+                * scene.motion;
+            // Integrate travel rather than multiplying the whole session age by
+            // a new scene's speed, which would teleport 2D geometry at a handoff.
+            legacy_clock += delta * (0.08 + drive * 1.92) * (0.5 + legacy_speed * 0.5);
             let uniforms = VisualUniforms {
                 resolution_time: [
                     renderer.render_width as f32,
@@ -651,10 +667,7 @@ impl Renderer {
                     impact_flash,
                 ],
                 visual: [
-                    (0.12 + drive * 1.38 + bass_hit * 0.18 + energy_rise * 0.24)
-                        * intensities[0]
-                        * current_settings.motion
-                        * scene.motion,
+                    legacy_speed,
                     (0.22 + drive * 0.78 + high_hit * 0.46 + mid_motion * 0.18)
                         * intensities[1]
                         * scene.detail,
@@ -709,6 +722,17 @@ impl Renderer {
                     signal_history.fraction_seconds(),
                 ],
                 signal_history: signal_history.snapshot(),
+                chromatic: [
+                    color_motion.update(
+                        delta,
+                        drive,
+                        smoothed.onset,
+                        current_settings.color_change,
+                    ),
+                    current_settings.color_change,
+                    legacy_clock,
+                    0.0,
+                ],
             };
             let presented = renderer.render(uniforms)?;
             if presented {
@@ -805,7 +829,15 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Performance frame encoder"),
             });
-        {
+        if !self.compositor.draw(
+            &self.device,
+            &self.queue,
+            &mut encoder,
+            &self.render_view,
+            &self.pipeline,
+            &self.line_pipeline,
+            uniforms,
+        ) {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("Performance frame"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -1074,6 +1106,7 @@ async fn probe_renderer_async(safe_mode: bool) -> Result<DiagnosticRendererInfo,
         &pipeline_layout,
         wgpu::TextureFormat::Bgra8UnormSrgb,
     );
+    let _compositor = compositor::SceneCompositor::new(&device, &bind_group_layout);
     if let Some(error) = pipeline_scope.pop().await {
         return Err(format!("GPU_PIPELINE_CREATE_FAILED: {error}"));
     }
@@ -1199,14 +1232,19 @@ mod tests {
 
     #[test]
     fn native_performance_shader_is_valid_wgsl() {
-        let module = naga::front::wgsl::parse_str(super::PERFORMANCE_SHADER)
-            .expect("performance shader should parse");
-        naga::valid::Validator::new(
-            naga::valid::ValidationFlags::all(),
-            naga::valid::Capabilities::all(),
-        )
-        .validate(&module)
-        .expect("performance shader should validate");
+        for source in [
+            super::PERFORMANCE_SHADER,
+            include_str!("../../shaders/composite.wgsl"),
+        ] {
+            let module =
+                naga::front::wgsl::parse_str(source).expect("performance shader should parse");
+            naga::valid::Validator::new(
+                naga::valid::ValidationFlags::all(),
+                naga::valid::Capabilities::all(),
+            )
+            .validate(&module)
+            .expect("performance shader should validate");
+        }
     }
 
     #[test]

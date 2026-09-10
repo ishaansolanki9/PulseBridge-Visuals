@@ -1,4 +1,5 @@
 mod director;
+mod musical_fit;
 mod palette;
 mod quality;
 mod reaction_history;

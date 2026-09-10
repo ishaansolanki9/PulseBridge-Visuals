@@ -295,6 +295,11 @@ pub struct SceneDirector {
     active_modifiers: Vec<ActiveModifier>,
     last_modifier_key: Option<u64>,
     spectacle: SpectacleEnvelope,
+    musical_fit: super::musical_fit::MusicalFit,
+    pending_choice: Option<(u64, VisualFamily)>,
+    palette_key: Option<u64>,
+    current_palette: PaletteName,
+    last_direction_kind: PhraseKind,
 }
 
 impl SceneDirector {
@@ -313,6 +318,11 @@ impl SceneDirector {
             active_modifiers: Vec::with_capacity(2),
             last_modifier_key: None,
             spectacle: SpectacleEnvelope::default(),
+            musical_fit: super::musical_fit::MusicalFit::default(),
+            pending_choice: None,
+            palette_key: None,
+            current_palette: PaletteName::Ocean,
+            last_direction_kind: PhraseKind::Unknown,
         }
     }
 
@@ -337,8 +347,13 @@ impl SceneDirector {
         style: VisualStyle,
         intensity: IntensityProfile,
     ) -> ScenePlan {
+        self.musical_fit.update(now_seconds, frame);
         let manual = self.focus.is_some() || style != VisualStyle::Auto;
         let phrase_fresh = phrase.provenance != PhraseProvenance::Unavailable
+            && phrase
+                .phrase
+                .as_ref()
+                .is_some_and(|segment| segment.confidence >= 0.45)
             && now.saturating_duration_since(phrase.updated_at) <= PHRASE_STALE_AFTER;
         let phrase_kind = if phrase_fresh {
             phrase.phrase.as_ref().map(|segment| segment.kind)
@@ -382,21 +397,67 @@ impl SceneDirector {
                 SceneReason::InferredState,
             )
         };
+        // Capture a choice once per musical boundary. Band changes while
+        // waiting for the downbeat cannot make the incoming scene oscillate.
         let desired = if manual {
             self.focus.unwrap_or_else(|| manual_family(style))
+        } else if self.last_phrase_key == Some(direction_key) && self.last_style == style {
+            self.active_transition
+                .map_or(self.current_primary, |transition| transition.1)
+        } else if let Some((key, family)) = self
+            .pending_choice
+            .filter(|choice| choice.0 == direction_key)
+        {
+            debug_assert_eq!(key, direction_key);
+            family
         } else {
-            self.choose_primary(direction_kind, direction_key)
+            let family = self.choose_primary(direction_kind, direction_key);
+            self.pending_choice = Some((direction_key, family));
+            family
         };
+        // A held scene still receives section-directed colors. Palette choice
+        // depends on musical sections, independently of the manual scene key.
+        let palette_key = if phrase_fresh {
+            phrase
+                .phrase
+                .as_ref()
+                .map_or(0, |segment| segment.index.rotate_left(17))
+        } else {
+            0
+        } ^ phrase_kind_id(direction_kind);
+        if self.palette_key != Some(palette_key) {
+            self.current_palette = palette_for_music(
+                direction_kind,
+                palette_key,
+                self.musical_fit.dominant_band(),
+            );
+            self.palette_key = Some(palette_key);
+        }
         let first_plan = self.last_phrase_key.is_none();
         if first_plan {
             self.current_primary = desired;
             self.last_switch_seconds = now_seconds;
             self.last_phrase_key = Some(direction_key);
             self.last_style = style;
+            self.last_direction_kind = direction_kind;
             self.remember(desired, None, mix_seed(self.session_seed, direction_key));
         }
         let key_changed = self.last_phrase_key != Some(direction_key) || self.last_style != style;
-        let dwell_satisfied = now_seconds - self.last_switch_seconds >= MIN_DWELL_SECONDS;
+        let residence = if self.current_primary.is_spatial() != desired.is_spatial() {
+            12.0
+        } else {
+            MIN_DWELL_SECONDS
+        };
+        let dwell_satisfied = now_seconds - self.last_switch_seconds >= residence;
+        let confirmed_drop = self.last_direction_kind == PhraseKind::Up
+            && direction_kind == PhraseKind::Chorus
+            && frame.reactivity > 0.5
+            && frame.state == MusicState::Impact
+            && frame.impact > 0.82
+            && frame.beat_confidence >= 0.6
+            && frame.energy > 0.55
+            && frame.bass > 0.48
+            && now_seconds - self.last_switch_seconds >= 3.0;
         if !first_plan
             && desired != self.current_primary
             && key_changed
@@ -405,31 +466,47 @@ impl SceneDirector {
                 || frame.beat_confidence < 0.5
                 || frame.impact > 0.65
                 || frame.bar_phase < 0.10)
-            && (dwell_satisfied || manual || self.recent.is_empty())
+            && (dwell_satisfied || confirmed_drop || manual || self.recent.is_empty())
         {
+            let mixed = self.current_primary.is_spatial() != desired.is_spatial();
+            let minimum_duration: f32 = if mixed {
+                match intensity {
+                    IntensityProfile::Chill => 3.6,
+                    IntensityProfile::Balanced => 2.8,
+                    IntensityProfile::Wild => 2.0,
+                }
+            } else {
+                1.2
+            };
             let duration = if frame.beat_confidence < 0.5 {
                 transition_duration(direction_kind, intensity).max(2.4)
             } else {
                 transition_duration(direction_kind, intensity)
-            };
+            }
+            .max(minimum_duration);
             self.active_transition = Some((self.current_primary, desired, now_seconds, duration));
             self.last_switch_seconds = now_seconds;
             self.last_phrase_key = Some(direction_key);
             self.last_style = style;
+            self.last_direction_kind = direction_kind;
         } else if key_changed && desired == self.current_primary {
             self.last_phrase_key = Some(direction_key);
             self.last_style = style;
+            self.last_direction_kind = direction_kind;
             self.remember(desired, None, mix_seed(self.session_seed, direction_key));
         }
 
-        let budgets = budgets_for(direction_kind, intensity, frame.energy);
+        // A queued scene must not change the visible scene's seed or budgets
+        // before its dissolve begins. The compositor then preserves the old look.
+        let committed_key = self.last_phrase_key.unwrap_or(direction_key);
+        let budgets = budgets_for(self.last_direction_kind, intensity, frame.energy);
         let mut plan = ScenePlan {
             primary: self.current_primary,
             secondary: None,
             primary_mix: 1.0,
             secondary_mix: 0.0,
-            variation_seed: mix_seed(self.session_seed, direction_key),
-            palette: palette_for_phrase(direction_kind),
+            variation_seed: mix_seed(self.session_seed, committed_key),
+            palette: self.current_palette,
             motion: budgets.0,
             detail: budgets.1,
             density: budgets.2,
@@ -442,7 +519,8 @@ impl SceneDirector {
 
         if let Some((from, to, start, duration)) = self.active_transition {
             let progress = ((now_seconds - start) / duration.max(0.001)).clamp(0.0, 1.0);
-            let eased = progress * progress * (3.0 - 2.0 * progress);
+            let eased =
+                progress * progress * progress * (progress * (progress * 6.0 - 15.0) + 10.0);
             plan.primary = from;
             plan.secondary = Some(to);
             plan.primary_mix = 1.0 - eased;
@@ -466,8 +544,8 @@ impl SceneDirector {
         }
         plan.modifiers = self.update_modifiers(
             now_seconds,
-            direction_kind,
-            direction_key,
+            self.last_direction_kind,
+            committed_key,
             intensity,
             frame,
             plan.primary,
@@ -488,33 +566,37 @@ impl SceneDirector {
 
     fn choose_primary(&self, phrase: PhraseKind, key: u64) -> VisualFamily {
         let candidates = candidates_for_phrase(phrase);
-        let start = mix_seed(self.session_seed, key) as usize % candidates.len();
         let last_composition = self.recent.back().map(|scene| scene.0.composition());
-        for offset in 0..candidates.len() {
-            let candidate = candidates[(start + offset) % candidates.len()];
-            let recently_used = self
-                .recent
+        let recent = |family: VisualFamily| {
+            self.recent
                 .iter()
                 .rev()
                 .take(4)
-                .any(|scene| scene.0 == candidate);
-            if !recently_used && Some(candidate.composition()) != last_composition {
-                return candidate;
-            }
-        }
-        for offset in 0..candidates.len() {
-            let candidate = candidates[(start + offset) % candidates.len()];
-            let recently_used = self
-                .recent
+                .any(|scene| scene.0 == family)
+        };
+        // Prefer a fresh composition, then a fresh scene. Musical fit is the
+        // main ranking; deterministic variation only breaks close matches.
+        for relaxation in 0..3 {
+            let best = candidates
                 .iter()
-                .rev()
-                .take(4)
-                .any(|scene| scene.0 == candidate);
-            if !recently_used {
-                return candidate;
+                .copied()
+                .filter(|family| {
+                    (relaxation >= 1 || Some(family.composition()) != last_composition)
+                        && (relaxation >= 2 || !recent(*family))
+                })
+                .max_by(|left, right| {
+                    let score = |family: VisualFamily| {
+                        self.musical_fit.score(family)
+                            + (mix_seed(key ^ self.session_seed, family as u64) % 1000) as f32
+                                * 0.00018
+                    };
+                    score(*left).total_cmp(&score(*right))
+                });
+            if let Some(family) = best {
+                return family;
             }
         }
-        candidates[start]
+        VisualFamily::AuroraVeil
     }
 
     fn remember(&mut self, primary: VisualFamily, secondary: Option<VisualFamily>, seed: u64) {
@@ -807,15 +889,21 @@ fn transition_duration(kind: PhraseKind, intensity: IntensityProfile) -> f32 {
     }
 }
 
-fn palette_for_phrase(kind: PhraseKind) -> PaletteName {
-    match kind {
-        PhraseKind::Intro | PhraseKind::Down | PhraseKind::Outro => PaletteName::Ocean,
-        PhraseKind::Verse => PaletteName::Electric,
-        PhraseKind::Up => PaletteName::Sunset,
-        PhraseKind::Chorus | PhraseKind::Fill => PaletteName::Neon,
-        PhraseKind::Bridge => PaletteName::PurpleBlue,
-        PhraseKind::Unknown => PaletteName::Ocean,
-    }
+fn palette_for_music(kind: PhraseKind, key: u64, band: usize) -> PaletteName {
+    let pair = match kind {
+        PhraseKind::Intro | PhraseKind::Down | PhraseKind::Outro => {
+            [PaletteName::Ocean, PaletteName::PurpleBlue]
+        }
+        PhraseKind::Up => [PaletteName::Sunset, PaletteName::Warm],
+        PhraseKind::Chorus | PhraseKind::Fill => [PaletteName::Neon, PaletteName::RainbowFlow],
+        PhraseKind::Verse | PhraseKind::Bridge => match band {
+            0 => [PaletteName::Electric, PaletteName::Infrared],
+            2 => [PaletteName::Neon, PaletteName::Sunset],
+            _ => [PaletteName::PurpleBlue, PaletteName::RainbowFlow],
+        },
+        PhraseKind::Unknown => [PaletteName::Ocean, PaletteName::Electric],
+    };
+    pair[(mix_seed(key, 0xc010_1234) % 2) as usize]
 }
 
 fn phrase_for_music_state(state: MusicState) -> PhraseKind {
@@ -912,6 +1000,259 @@ mod tests {
             updated_at: now,
             ..Default::default()
         }
+    }
+
+    #[test]
+    fn pending_scene_does_not_change_the_outgoing_seed_or_budgets() {
+        let now = Instant::now();
+        let mut director = SceneDirector::new(51);
+        let frame = VisualInputFrame {
+            energy: 0.7,
+            beat_confidence: 0.9,
+            bar_phase: 0.5,
+            reactivity: 1.0,
+            ..Default::default()
+        };
+        let before = director.update(
+            0.0,
+            now,
+            frame,
+            &context(now, PhraseKind::Intro, 0),
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        let waiting = director.update(
+            9.0,
+            now,
+            frame,
+            &context(now, PhraseKind::Chorus, 1),
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert!(waiting.secondary.is_none());
+        assert_eq!(before.variation_seed, waiting.variation_seed);
+        assert_eq!(
+            (before.motion, before.detail, before.brightness),
+            (waiting.motion, waiting.detail, waiting.brightness)
+        );
+    }
+
+    #[test]
+    fn mixed_scenes_get_a_longer_residence_and_gentle_dissolve() {
+        let now = Instant::now();
+        let mut director = SceneDirector::new(51);
+        director.set_focus(SceneSelection::LiquidRelic);
+        director.update(
+            0.0,
+            now,
+            VisualInputFrame::default(),
+            &context(now, PhraseKind::Intro, 0),
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        director.set_focus(SceneSelection::Auto);
+        // A low-energy intro favors an original calm scene after the held ribbon.
+        let frame = VisualInputFrame {
+            beat_confidence: 0.9,
+            ..Default::default()
+        };
+        let next = context(now, PhraseKind::Intro, 1);
+        let early = director.update(
+            9.0,
+            now,
+            frame,
+            &next,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert!(early.secondary.is_none());
+        let start = director.update(
+            12.0,
+            now,
+            frame,
+            &next,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert!(start.transition.unwrap().duration_seconds >= 2.8);
+        let opening = director.update(
+            12.05,
+            now,
+            frame,
+            &next,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert!(opening.secondary_mix < 0.001);
+    }
+
+    #[test]
+    fn scene_choices_match_bass_melody_and_percussion() {
+        for key in 0..24 {
+            let mut director = SceneDirector::new(key + 1);
+            let mut frame = VisualInputFrame {
+                energy: 0.72,
+                sub: 0.0,
+                bass: 0.95,
+                mids: 0.05,
+                highs: 0.05,
+                reactivity: 1.0,
+                ..Default::default()
+            };
+            director.musical_fit.update(0.0, frame);
+            assert_eq!(
+                director.choose_primary(PhraseKind::Verse, key),
+                VisualFamily::MagneticSwarm
+            );
+            frame.bass = 0.05;
+            frame.mids = 0.95;
+            for second in 1..=10 {
+                director.musical_fit.update(second as f32, frame);
+            }
+            assert_eq!(
+                director.choose_primary(PhraseKind::Verse, key),
+                VisualFamily::LiquidRelic
+            );
+            frame.mids = 0.05;
+            frame.highs = 0.95;
+            frame.onset = 0.9;
+            for second in 11..=20 {
+                director.musical_fit.update(second as f32, frame);
+            }
+            assert_eq!(
+                director.choose_primary(PhraseKind::Chorus, key),
+                VisualFamily::KineticSculpture
+            );
+        }
+    }
+
+    #[test]
+    fn queued_choice_waits_for_the_bar_and_survives_a_brief_band_change() {
+        let now = Instant::now();
+        let mut director = SceneDirector::new(51);
+        let frame = VisualInputFrame {
+            state: MusicState::Groove,
+            energy: 0.7,
+            bass: 0.9,
+            reactivity: 1.0,
+            beat_confidence: 0.9,
+            bar_phase: 0.5,
+            ..Default::default()
+        };
+        director.update(
+            0.0,
+            now,
+            frame,
+            &context(now, PhraseKind::Intro, 0),
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        let next = context(now, PhraseKind::Verse, 1);
+        let waiting = director.update(
+            12.0,
+            now,
+            frame,
+            &next,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert!(waiting.secondary.is_none());
+        let chosen = director.pending_choice.unwrap().1;
+        let downbeat = VisualInputFrame {
+            bass: 0.05,
+            mids: 0.95,
+            bar_phase: 0.0,
+            ..frame
+        };
+        let changing = director.update(
+            12.5,
+            now,
+            downbeat,
+            &next,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert_eq!(changing.secondary, Some(chosen));
+    }
+
+    #[test]
+    fn confirmed_drop_can_resolve_a_recent_build_but_weak_timing_cannot() {
+        let now = Instant::now();
+        let build = VisualInputFrame {
+            state: MusicState::Build,
+            energy: 0.6,
+            bass: 0.5,
+            reactivity: 1.0,
+            beat_confidence: 0.9,
+            ..Default::default()
+        };
+        for confidence in [0.2, 0.9] {
+            let mut director = SceneDirector::new(71);
+            director.update(
+                0.0,
+                now,
+                build,
+                &context(now, PhraseKind::Up, 0),
+                VisualStyle::Auto,
+                IntensityProfile::Balanced,
+            );
+            let drop = VisualInputFrame {
+                state: MusicState::Impact,
+                energy: 0.95,
+                bass: 0.95,
+                impact: 0.95,
+                beat_confidence: confidence,
+                ..build
+            };
+            let plan = director.update(
+                4.0,
+                now,
+                drop,
+                &context(now, PhraseKind::Chorus, 1),
+                VisualStyle::Auto,
+                IntensityProfile::Balanced,
+            );
+            assert_eq!(plan.secondary.is_some(), confidence > 0.6);
+        }
+    }
+
+    #[test]
+    fn held_geometry_still_gets_section_colors_and_weak_phrases_fall_back() {
+        let now = Instant::now();
+        let mut director = SceneDirector::new(51);
+        director.set_focus(SceneSelection::LiquidRelic);
+        let frame = VisualInputFrame::default();
+        let quiet = director.update(
+            0.0,
+            now,
+            frame,
+            &context(now, PhraseKind::Down, 0),
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        let peak = director.update(
+            12.0,
+            now,
+            frame,
+            &context(now, PhraseKind::Chorus, 1),
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert_eq!(quiet.primary, peak.primary);
+        assert_ne!(quiet.palette, peak.palette);
+        director.set_focus(SceneSelection::Auto);
+        let mut weak = context(now, PhraseKind::Chorus, 2);
+        weak.provenance = PhraseProvenance::Rekordbox;
+        weak.phrase.as_mut().unwrap().confidence = 0.1;
+        let fallback = director.update(
+            24.0,
+            now,
+            frame,
+            &weak,
+            VisualStyle::Auto,
+            IntensityProfile::Balanced,
+        );
+        assert_eq!(fallback.reason, SceneReason::InferredState);
     }
 
     #[test]

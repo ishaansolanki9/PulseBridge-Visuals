@@ -15,6 +15,7 @@ struct VisualParams {
     reactive: vec4<f32>,
     spatial: vec4<f32>,
     signal_history: array<vec4<f32>, 32>,
+    chromatic: vec4<f32>,
 };
 
 @group(0) @binding(0) var<uniform> params: VisualParams;
@@ -91,13 +92,12 @@ fn paint(field: f32, light: f32) -> vec3<f32> {
     return palette_field(field) * (0.045 + max(light, 0.0));
 }
 
-fn phase_time(time: f32) -> f32 {
+fn phase_time(_time: f32) -> f32 {
     let drive = params.style_b.y;
     let musical_nudge = params.pulse.y * (0.12 + drive * 0.42)
         + params.reactive.x * 0.24
         + params.reactive.z * 0.11;
-    return time * (0.08 + drive * 1.92) * (0.5 + params.visual.x * 0.5)
-        + musical_nudge;
+    return params.chromatic.z + musical_nudge;
 }
 
 fn warp_spiral(uv: vec2<f32>, time: f32) -> vec3<f32> {

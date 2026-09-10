@@ -30,7 +30,7 @@ const flashes: Array<{ id: FlashProfile; label: string }> = [
 ];
 
 const palettes: Array<{ id: PaletteName; label: string }> = [
-  { id: "auto", label: "Auto · follows energy" },
+  { id: "auto", label: "Auto · music-directed colors" },
   { id: "electric", label: "Electric" },
   { id: "neon", label: "Neon" },
   { id: "sunset", label: "Sunset" },
@@ -202,7 +202,7 @@ export function ControlApp() {
         <label className="field scene-field">
           <span>Visual scene</span>
           <select value={settings.scene} onChange={(event) => changeSettings({ scene: event.target.value as SceneSelection })}>
-            <option value="auto">Auto · music-directed full library</option>
+            <option value="auto">Auto · matches the music</option>
             <option value="magneticSwarm">Bass Web · traveling shockwaves</option>
             <option value="liquidRelic">Ribbon Reactor · bending & braiding</option>
             <option value="impossibleArchitecture">Shockwave Tunnel · folding light</option>
@@ -210,7 +210,7 @@ export function ControlApp() {
             <option value="kineticSculpture">Prism Surge · twisting fractures</option>
             <option value="topographicOcean">Faultline · rolling wire terrain</option>
           </select>
-          <small>Scene selection applies to the native output. The ambient preview shows the original visual style.</small>
+          <small>Auto matches scenes to energy, bass, mids, and percussion. Select a scene to hold it. The ambient preview shows the original style.</small>
         </label>
         <div className="setup-grid">
           <label className="field">
