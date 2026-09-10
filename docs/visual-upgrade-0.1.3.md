@@ -1,5 +1,7 @@
 # PulseBridge 0.1.3 visual upgrade
 
+Historical release notes. The six spatial scenes and their quality budgets were replaced in [0.1.4](reactive-lines-0.1.4.md); the current audition script uses the new names.
+
 The native performance library now contains the original 26 illusions plus Magnetic Swarm, Liquid Relic, Impossible Architecture, Aurora Veil, Kinetic Sculpture, and Topographic Ocean. Choose **Visual scene** in the controller to hold a new scene, or use **Auto** for phrase-directed selection across the complete library. The browser preview continues to show the original ambient appearance; it does not demonstrate the new native scenes or audio responsiveness.
 
 Spatial scenes use world-space positions and a restrained perspective camera. Solid scenes use bounded signed-distance fields, normals, lighting, and atmospheric depth. Aurora uses inexpensive translucent layers. The swarm is a procedural particle arrangement; this release does not add a physical particle simulation, external assets, or a new rendering engine.

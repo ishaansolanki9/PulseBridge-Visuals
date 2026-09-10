@@ -9,6 +9,7 @@ struct Stage {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
+    line_pipeline: wgpu::RenderPipeline,
     binding: wgpu::BindGroup,
     uniform: wgpu::Buffer,
 }
@@ -37,7 +38,7 @@ impl Stage {
             label: None,
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -84,7 +85,10 @@ impl Stage {
             multiview_mask: None,
             cache: None,
         });
+        let line_pipeline =
+            create_line_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT);
         Self {
+            line_pipeline,
             device,
             queue,
             pipeline,
@@ -135,6 +139,7 @@ impl Stage {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.binding, &[]);
             pass.draw(0..3, 0..1);
+            draw_line_scenes(&mut pass, &self.line_pipeline, &uniforms);
         }
         let start = Instant::now();
         self.queue.submit(Some(encoder.finish()));
@@ -267,6 +272,12 @@ fn fixture(
             smoothed.energy_rise,
         ],
         spatial: [clock, transformation, quality, 0.0],
+        signal_history: [[
+            smoothed.bass_hit,
+            smoothed.mid_motion,
+            smoothed.high_hit,
+            smoothed.energy_rise,
+        ]; 32],
     }
 }
 #[test]
@@ -283,6 +294,7 @@ fn native_scene_audition() {
         let mut smoothed = SmoothedVisualState::default();
         let mut event = SpectacleEnvelope::default();
         let mut clock = 0.0;
+        let mut history = crate::visuals::reaction_history::ReactionHistory::default();
         for index in 0..180 {
             let t = index as f32 / 15.0;
             let frame = synthetic_frame(t);
@@ -290,7 +302,18 @@ fn native_scene_audition() {
             let transformation = event.update(t, frame, super::super::IntensityProfile::Wild);
             clock += (0.25 + smoothed.drive * 0.65) / 15.0;
             let quality = if (60..120).contains(&index) { 0.0 } else { 1.0 };
-            let uniforms = fixture(id, t, quality, (640, 360), smoothed, transformation, clock);
+            history.update(
+                [
+                    smoothed.bass_hit,
+                    smoothed.mid_motion,
+                    smoothed.high_hit,
+                    smoothed.energy_rise,
+                ],
+                1.0 / 15.0,
+            );
+            let mut uniforms = fixture(id, t, quality, (640, 360), smoothed, transformation, clock);
+            uniforms.signal_history = history.snapshot();
+            uniforms.spatial[3] = history.fraction_seconds();
             stage.draw(
                 uniforms,
                 &capture_target,
@@ -327,13 +350,13 @@ fn native_scene_audition() {
             report.push_str(&line);
         }
     }
-    let transition_target = stage.target(960, 540);
+    let transition_target = stage.target(1280, 720);
     let mut transition_timings = Vec::new();
     for index in 0..30 {
         let progress = index as f32 / 29.0;
         let mut smoothed = SmoothedVisualState::default();
         smoothed.update(synthetic_frame(8.0), 0.1);
-        let mut uniforms = fixture(27, 8.0, 0.0, (960, 540), smoothed, 0.7, 4.0 + progress);
+        let mut uniforms = fixture(27, 8.0, 0.5, (1280, 720), smoothed, 0.7, 4.0 + progress);
         uniforms.style_a = [27.0, 30.0, 1.0 - progress, progress];
         let ms = stage.draw(uniforms, &transition_target, None);
         if index > 4 {
@@ -341,7 +364,7 @@ fn native_scene_audition() {
         }
     }
     transition_timings.sort_by(f64::total_cmp);
-    let line = format!("Liquid Relic + Kinetic Sculpture transition, 960x540, quality 0: median {:.2}ms, p95 {:.2}ms\n", transition_timings[12], transition_timings[23]);
+    let line = format!("Ribbon Reactor + Prism Surge transition, 1280x720, quality 0.5: median {:.2}ms, p95 {:.2}ms\n", transition_timings[12], transition_timings[23]);
     eprint!("{line}");
     report.push_str(&line);
     for index in 0..60 {
@@ -377,4 +400,96 @@ fn native_scene_audition() {
         );
     }
     fs::write(output.join("timings.txt"), report).unwrap();
+}
+
+/// Compare spatial light distributions after normalizing total brightness.
+/// A whole-image brightness pulse cannot pass this response check.
+#[test]
+#[ignore = "requires a native GPU; captures isolated bands with a fixed camera and exposure"]
+fn native_line_response_audition() {
+    let output = std::env::var_os("PULSEBRIDGE_AUDITION_DIR")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| std::path::PathBuf::from("target/audition"));
+    fs::create_dir_all(&output).unwrap();
+    let stage = pollster::block_on(Stage::new());
+    let target = stage.target(640, 360);
+    fn distribution(path: &Path) -> Vec<f32> {
+        let bytes = fs::read(path).unwrap();
+        let start = bytes
+            .iter()
+            .enumerate()
+            .filter(|(_, byte)| **byte == b'\n')
+            .nth(2)
+            .unwrap()
+            .0
+            + 1;
+        let mut values: Vec<f32> = bytes[start..]
+            .chunks_exact(3)
+            .map(|rgb| 0.2126 * rgb[0] as f32 + 0.7152 * rgb[1] as f32 + 0.0722 * rgb[2] as f32)
+            .collect();
+        let sum: f32 = values.iter().sum();
+        assert!(sum > 10000.0, "scene must render visible geometry");
+        for value in &mut values {
+            *value /= sum;
+        }
+        values
+    }
+    let mut report = String::from("Fixed clock/camera/exposure. Flash off. Normalized spatial image difference (0 = brightness-only change).\n");
+    for family in 26..32 {
+        let mut uniforms = fixture(
+            family,
+            4.0,
+            0.5,
+            (640, 360),
+            SmoothedVisualState::default(),
+            0.0,
+            2.5,
+        );
+        uniforms.visual[3] = 0.65;
+        uniforms.signal_history = [[0.0; 4]; 32];
+        uniforms.reactive = [0.0; 4];
+        let baseline_file = output.join(format!("response-{family}-baseline.ppm"));
+        stage.draw(uniforms, &target, Some(&baseline_file));
+        let baseline = distribution(&baseline_file);
+        // Even an enabled legacy flash must not bleach the line geometry.
+        uniforms.pulse[3] = 1.0;
+        let flash_file = output.join(format!("response-{family}-flash.ppm"));
+        stage.draw(uniforms, &target, Some(&flash_file));
+        assert_eq!(
+            fs::read(&baseline_file).unwrap(),
+            fs::read(&flash_file).unwrap()
+        );
+        uniforms.pulse[3] = 0.0;
+        uniforms.style_b[3] = 1.0;
+        let black_file = output.join(format!("response-{family}-black.ppm"));
+        stage.draw(uniforms, &target, Some(&black_file));
+        let black = fs::read(&black_file).unwrap();
+        assert!(black[black.len() - 640 * 360 * 3..]
+            .iter()
+            .all(|byte| *byte == 0));
+        uniforms.style_b[3] = 0.0;
+        for (lane, label) in [(0, "bass"), (1, "mids"), (2, "highs")] {
+            uniforms.signal_history = [[0.0; 4]; 32];
+            for (index, sample) in uniforms.signal_history.iter_mut().enumerate() {
+                let age = index as f32 / 30.0;
+                sample[lane] = (-(age - 0.35).powi(2) / 0.04).exp() * 0.95;
+            }
+            let file = output.join(format!("response-{family}-{label}.ppm"));
+            stage.draw(uniforms, &target, Some(&file));
+            let actual = distribution(&file);
+            let difference: f32 = actual
+                .iter()
+                .zip(&baseline)
+                .map(|(a, b)| (a - b).abs())
+                .sum();
+            let line = format!("scene {family}, {label}: {difference:.3}\n");
+            eprint!("{line}");
+            report.push_str(&line);
+            assert!(
+                difference > 0.20,
+                "scene {family} must respond spatially to {label}, got {difference}"
+            );
+        }
+    }
+    fs::write(output.join("band-response.txt"), report).unwrap();
 }

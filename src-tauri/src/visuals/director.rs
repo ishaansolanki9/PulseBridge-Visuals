@@ -118,20 +118,23 @@ impl VisualFamily {
     // even when the actual shader family has a different name.
     fn composition(self) -> u8 {
         match self {
-            Self::MagneticSwarm | Self::LiquidRelic | Self::KineticSculpture => 0,
-            Self::ImpossibleArchitecture | Self::TopographicOcean => 1,
-            Self::AuroraVeil
+            // IDs retain their 0.1.3 names for saved selection compatibility.
+            Self::TopographicOcean => 1,
+            Self::LiquidRelic
+            | Self::AuroraVeil
             | Self::SineInterference
             | Self::QuantumWeave
             | Self::ElectricTopography => 2,
-            Self::WarpSpiral
+            Self::ImpossibleArchitecture
+            | Self::WarpSpiral
             | Self::HyperbolicTunnel
             | Self::RibbonWormhole
             | Self::HelixPortal
             | Self::RadialEscalator
             | Self::PrismVortex
             | Self::VortexChevron => 3,
-            Self::GlassOrbit
+            Self::KineticSculpture
+            | Self::GlassOrbit
             | Self::GravityLens
             | Self::EventHorizon
             | Self::OrbitalMesh
@@ -1349,7 +1352,7 @@ mod spatial_tests {
                 director
                     .choose_primary(PhraseKind::Chorus, key)
                     .composition(),
-                0
+                VisualFamily::LiquidRelic.composition()
             );
         }
         for family in ALL_ILLUSIONS

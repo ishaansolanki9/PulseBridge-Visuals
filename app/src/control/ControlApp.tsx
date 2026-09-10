@@ -194,7 +194,7 @@ export function ControlApp() {
         </div>
         <div className="preview-caption">
           <span>{runtime?.running ? "Preview paused to preserve performance" : "Live response activates in the output"}</span>
-          <strong>32 scenes · native 3D</strong>
+          <strong>32 scenes · reactive lines</strong>
         </div>
       </section>
 
@@ -203,12 +203,12 @@ export function ControlApp() {
           <span>Visual scene</span>
           <select value={settings.scene} onChange={(event) => changeSettings({ scene: event.target.value as SceneSelection })}>
             <option value="auto">Auto · music-directed full library</option>
-            <option value="magneticSwarm">Magnetic Swarm · 3D particles</option>
-            <option value="liquidRelic">Liquid Relic · morphing sculpture</option>
-            <option value="impossibleArchitecture">Impossible Architecture · moving chambers</option>
-            <option value="auroraVeil">Aurora Veil · luminous ribbons</option>
-            <option value="kineticSculpture">Kinetic Sculpture · coordinated geometry</option>
-            <option value="topographicOcean">Topographic Ocean · traveling landscape</option>
+            <option value="magneticSwarm">Bass Web · traveling shockwaves</option>
+            <option value="liquidRelic">Ribbon Reactor · bending & braiding</option>
+            <option value="impossibleArchitecture">Shockwave Tunnel · folding light</option>
+            <option value="auroraVeil">Aurora Strings · plucked fibers</option>
+            <option value="kineticSculpture">Prism Surge · twisting fractures</option>
+            <option value="topographicOcean">Faultline · rolling wire terrain</option>
           </select>
           <small>Scene selection applies to the native output. The ambient preview shows the original visual style.</small>
         </label>
@@ -338,7 +338,7 @@ export function ControlApp() {
             <small>
               {fullRangeDial
                 ? "Wild lets live audio climb from subtle movement to the full illusion ceiling."
-                : "Off is the default. Motion impacts stay active without white flashes."}
+                : "Off is the default. Optional flashes affect original patterns; reactive lines use color and geometry."}
             </small>
           </div>
         </div>

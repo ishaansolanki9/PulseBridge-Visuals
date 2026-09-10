@@ -14,6 +14,7 @@ struct VisualParams {
     modifiers: vec4<f32>,
     reactive: vec4<f32>,
     spatial: vec4<f32>,
+    signal_history: array<vec4<f32>, 32>,
 };
 
 @group(0) @binding(0) var<uniform> params: VisualParams;
@@ -561,7 +562,7 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     if secondary_id >= 26u && params.style_a.w > 0.001 {
         color += spatial_scene(secondary_id, spatial_uv) * params.style_a.w * spatial_brightness;
     }
-    color = mix(color, vec3<f32>(1.0), params.pulse.w * (0.54 + drive * 0.16));
+    color = mix(color, vec3<f32>(1.0), params.pulse.w * legacy_weight * (0.54 + drive * 0.16));
     let luminance = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));
     let luminance_budget = 0.7 + params.scene.w * 0.32 + drive * 0.12;
     if luminance > luminance_budget {

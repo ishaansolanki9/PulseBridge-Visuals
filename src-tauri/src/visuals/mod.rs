@@ -1,6 +1,7 @@
 mod director;
 mod palette;
 mod quality;
+mod reaction_history;
 mod renderer;
 mod state;
 

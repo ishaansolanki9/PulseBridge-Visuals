@@ -190,6 +190,7 @@ struct VisualUniforms {
     modifiers: [f32; 4],
     reactive: [f32; 4],
     spatial: [f32; 4],
+    signal_history: [[f32; 4]; 32],
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -242,6 +243,7 @@ struct Renderer {
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     pipeline: wgpu::RenderPipeline,
+    line_pipeline: wgpu::RenderPipeline,
     uniform_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     _render_target: wgpu::Texture,
@@ -389,7 +391,7 @@ impl Renderer {
             label: Some("Visual parameter layout"),
             entries: &[wgpu::BindGroupLayoutEntry {
                 binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Uniform,
                     has_dynamic_offset: false,
@@ -436,6 +438,8 @@ impl Renderer {
             multiview_mask: None,
             cache: None,
         });
+        let line_pipeline =
+            create_line_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT);
         if let Some(error) = pipeline_scope.pop().await {
             let message = format!("GPU_PIPELINE_CREATE_FAILED: {error}");
             pipeline_stage.error(
@@ -473,6 +477,7 @@ impl Renderer {
             queue,
             config,
             pipeline,
+            line_pipeline,
             uniform_buffer,
             bind_group,
             _render_target: render_target,
@@ -492,6 +497,7 @@ impl Renderer {
         let mut next_frame = started_at;
         let mut smoothed = SmoothedVisualState::default();
         let mut spatial_clock = 0.0;
+        let mut signal_history = super::reaction_history::ReactionHistory::default();
         let mut quality = super::quality::AdaptiveQuality::default();
         let mut flash_envelope = FlashEnvelope::default();
         let initial_settings = read_settings(&settings);
@@ -561,20 +567,9 @@ impl Renderer {
                 current_settings.style,
                 current_settings.intensity,
             );
-            // Integrated GPUs reserve headroom for Rekordbox and dual-scene transitions.
-            let spatial_scene = scene.primary.is_spatial()
-                || scene.secondary.is_some_and(|family| family.is_spatial());
-            let minimum_tier = if scene.primary.is_spatial()
-                && scene.secondary.is_some_and(|family| family.is_spatial())
-            {
-                2
-            } else if scene.secondary.is_some()
-                || (spatial_scene && adapter_info.device_type != wgpu::DeviceType::DiscreteGpu)
-            {
-                1
-            } else {
-                0
-            };
+            // Instanced lines fit the HD budget on integrated GPUs. Reserve
+            // 720p for dual-scene transitions; sustained overload still adapts.
+            let minimum_tier = u8::from(scene.secondary.is_some());
             let size = window.inner_size().map_err(|error| error.to_string())?;
             let window_width = size.width.max(1);
             let window_height = size.height.max(1);
@@ -633,6 +628,7 @@ impl Renderer {
             let mid_motion = (smoothed.mid_motion * reaction_gain).clamp(0.0, 1.0);
             let high_hit = (smoothed.high_hit * reaction_gain).clamp(0.0, 1.0);
             let energy_rise = (smoothed.energy_rise * reaction_gain).clamp(0.0, 1.0);
+            signal_history.update([bass_hit, mid_motion, high_hit, energy_rise], delta);
             spatial_clock += delta * (0.25 + drive * 0.65) * current_settings.motion * scene.motion;
             let spatial_quality = quality.detail(minimum_tier);
             let uniforms = VisualUniforms {
@@ -710,8 +706,9 @@ impl Renderer {
                     spatial_clock,
                     scene.transformation * current_settings.music_reactivity.min(1.0),
                     spatial_quality,
-                    0.0,
+                    signal_history.fraction_seconds(),
                 ],
+                signal_history: signal_history.snapshot(),
             };
             let presented = renderer.render(uniforms)?;
             if presented {
@@ -825,6 +822,7 @@ impl Renderer {
             pass.set_pipeline(&self.pipeline);
             pass.set_bind_group(0, &self.bind_group, &[]);
             pass.draw(0..3, 0..1);
+            draw_line_scenes(&mut pass, &self.line_pipeline, &uniforms);
         }
         self.blitter
             .copy(&self.device, &mut encoder, &self.render_view, &view);
@@ -1031,7 +1029,7 @@ async fn probe_renderer_async(safe_mode: bool) -> Result<DiagnosticRendererInfo,
         label: Some("Diagnostic uniform layout"),
         entries: &[wgpu::BindGroupLayoutEntry {
             binding: 0,
-            visibility: wgpu::ShaderStages::FRAGMENT,
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Uniform,
                 has_dynamic_offset: false,
@@ -1070,6 +1068,12 @@ async fn probe_renderer_async(safe_mode: bool) -> Result<DiagnosticRendererInfo,
         multiview_mask: None,
         cache: None,
     });
+    let _lines = create_line_pipeline(
+        &device,
+        &shader,
+        &pipeline_layout,
+        wgpu::TextureFormat::Bgra8UnormSrgb,
+    );
     if let Some(error) = pipeline_scope.pop().await {
         return Err(format!("GPU_PIPELINE_CREATE_FAILED: {error}"));
     }
@@ -1230,3 +1234,50 @@ mod tests {
 #[cfg(test)]
 #[path = "audition.rs"]
 mod audition;
+
+fn create_line_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Reactive emissive line geometry"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_lines"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        primitive: Default::default(),
+        depth_stencil: None,
+        multisample: Default::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs_lines"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
+}
+fn draw_line_scenes(
+    pass: &mut wgpu::RenderPass<'_>,
+    pipeline: &wgpu::RenderPipeline,
+    uniforms: &VisualUniforms,
+) {
+    const SEGMENTS: u32 = 48 * 96;
+    pass.set_pipeline(pipeline);
+    if uniforms.style_a[0] >= 26.0 && uniforms.style_a[2] > 0.001 {
+        pass.draw(0..6, 0..SEGMENTS);
+    }
+    if uniforms.style_a[1] >= 26.0 && uniforms.style_a[3] > 0.001 {
+        pass.draw(0..6, 8192..8192 + SEGMENTS);
+    }
+}

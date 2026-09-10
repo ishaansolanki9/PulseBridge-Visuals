@@ -10,7 +10,7 @@ parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('directory', type=Path)
 args = parser.parse_args()
 root = args.directory
-names = ['Magnetic Swarm', 'Liquid Relic', 'Impossible Architecture', 'Aurora Veil', 'Kinetic Sculpture', 'Topographic Ocean']
+names = ['Bass Web', 'Ribbon Reactor', 'Shockwave Tunnel', 'Aurora Strings', 'Prism Surge', 'Faultline']
 sheet = Image.new('RGB', (1280, 1152), '#090d16')
 draw = ImageDraw.Draw(sheet)
 for index, name in enumerate(names):
@@ -42,5 +42,18 @@ for scene in range(26, 32):
         storyboard.paste(image, (index % 4 * 320, index // 4 * 180))
     storyboard.save(root / f'storyboard-{scene}.png')
 cards = ''.join(f'<article><h2>{name}</h2><img src="scene-{index + 26}.gif" alt="{name} synthetic audition"></article>' for index, name in enumerate(names))
-(root / 'review.html').write_text('''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>PulseBridge 0.1.3 · synthetic visual audition</title><style>body{margin:0;padding:32px;background:#090d16;color:#dce8f4;font:16px system-ui}h1{font-size:28px}p{max-width:850px;color:#9dafbd;line-height:1.6}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:24px}article{background:#111925;border-radius:12px;overflow:hidden}h2{font-size:18px;padding:0 18px}img{display:block;width:100%}a{color:#83dfed}</style><h1>PulseBridge · six new visual worlds</h1><p>Development audition using the production native shaders and synthetic inputs. No audio was captured. Every scene uses the Electric palette with white flashing off. Each 12-second loop moves through quiet, groove, build, impact, and breakdown; seconds 4–8 deliberately use the lowest shader detail.</p><main>''' + cards + '''</main><h2>Liquid Relic → Impossible Architecture</h2><img style="max-width:960px" src="transition.gif" alt="Synthetic crossfade"><p><a href="timings.txt">Native GPU frame timings</a></p></html>''')
+band_review = ''
+if (root / 'response-26-baseline.ppm').exists():
+    bands = ['baseline', 'bass', 'mids', 'highs']
+    comparison = Image.new('RGB', (1280, 1260), '#090d16')
+    labels = ImageDraw.Draw(comparison)
+    for row, name in enumerate(names):
+        for column, band in enumerate(bands):
+            x, y = column * 320, row * 210
+            still = Image.open(root / f'response-{row + 26}-{band}.ppm').resize((320, 180))
+            comparison.paste(still, (x, y + 30))
+            labels.text((x + 8, y + 10), f'{name} / {band}', fill='white')
+    comparison.save(root / 'band-response.png')
+    band_review = '<h2>Isolated band response</h2><p>The camera, clock, palette, and exposure are fixed. Each column adds only one frequency band.</p><img src="band-response.png" alt="Six scenes responding separately to bass, mids, and highs"><p><a href="band-response.txt">Normalized spatial response measurements</a></p>'
+(root / 'review.html').write_text('''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>PulseBridge 0.1.4 · synthetic visual audition</title><style>body{margin:0;padding:32px;background:#090d16;color:#dce8f4;font:16px system-ui}h1{font-size:28px}p{max-width:850px;color:#9dafbd;line-height:1.6}main{display:grid;grid-template-columns:repeat(auto-fit,minmax(360px,1fr));gap:24px}article{background:#111925;border-radius:12px;overflow:hidden}h2{font-size:18px;padding:0 18px}img{display:block;width:100%}a{color:#83dfed}</style><h1>PulseBridge · reactive line worlds</h1><p>Development audition using the production native shaders and synthetic inputs. No audio was captured. Every scene uses the Electric palette with white flashing off. Each 12-second loop moves through quiet, groove, build, impact, and breakdown; seconds 4–8 deliberately use the lowest shader detail.</p><main>''' + cards + '</main>' + band_review + '''<h2>Ribbon Reactor → Shockwave Tunnel</h2><img style="max-width:960px" src="transition.gif" alt="Synthetic crossfade"><h2>Original Warp Spiral → Ribbon Reactor</h2><img style="max-width:960px" src="mixed-transition.gif" alt="Original pattern to line world crossfade"><p><a href="timings.txt">Native GPU frame timings</a></p></html>''')
 print(root / 'review.html')

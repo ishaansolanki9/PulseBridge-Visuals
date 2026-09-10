@@ -11,10 +11,10 @@ The laptop window is a compact controller. The performance window is a borderles
 - A bounded 5–30 second lock-free PCM ring buffer held only in RAM
 - 48 kHz analysis with RMS, sub/bass/mid/high energy, spectral flux, onset strength, rolling normalization, BPM/beat confidence, four-beat bar phase, energy trends, and state hysteresis
 - Quiet, Flow, Groove, Build, Impact, Peak, and Breakdown musical behavior
-- Phrase-directed Auto behavior across 32 scenes (26 analytic illusions plus six spatial families), with curated scene families for intros, verses, builds, drops, breakdowns, bridges, and fills instead of cadence-based random changes
+- Phrase-directed Auto behavior across 32 scenes (26 analytic illusions plus six reactive line worlds), with curated scene families for intros, verses, builds, drops, breakdowns, bridges, and fills instead of cadence-based random changes
 - Spirals, wormholes, moiré interference, rotating-snakes luminance drift, impossible grids, gravity lenses, alien heads, chromatic mazes, and other motion-first illusion families
-- Native 3D Magnetic Swarm, Liquid Relic, Impossible Architecture, Kinetic Sculpture, and Topographic Ocean, plus layered Aurora Veil; a controller scene selector lets you hold any new scene while it follows the music
-- Cooldown-limited expansion/reassembly, composition-aware selection, stable integrated 3D motion, and adaptive rendering with integrated-GPU headroom
+- Six native 3D line worlds: Bass Web, Ribbon Reactor, Shockwave Tunnel, Aurora Strings, Prism Surge, and Faultline; a controller scene selector holds any scene while it follows the music
+- Traveling bass shockwaves, midrange bends and braids, high-frequency plucks and fractures, composition-aware selection, and adaptive HD rendering
 - Adaptive and fixed palettes, Chill/Balanced/Wild profiles, opt-in flash levels, and advanced reaction controls
 - A non-fullscreen **Test connection** workflow with Audio only, Renderer only, Full startup, and Safe renderer reports; versioned JSON, readable copy, and durable unclean-exit reconstruction
 - A proportional audio-drive dial plus distinct bass geometry waves, midrange bends, high-frequency color shards, energy-rise depth changes, and music-boundary scene transitions
@@ -78,13 +78,13 @@ Audio capture supplies the mixed PCM signal used to derive loudness, bass, mids,
 
 Before fullscreen, use **Test connection** and choose a mode. The report separates process detection, capture initialization, packets, non-silent samples, reactive readiness, GPU validation, and hidden-surface presentation. **Copy readable result**, **Copy JSON**, and **Open logs folder** are available in the controller.
 
-## Trying the 0.1.3 visuals
+## Trying the 0.1.4 visuals
 
-Choose **Visual scene → Auto** for the complete music-directed library, or select one of the six new scenes to hold it during playback. The **Ambient preview** remains a cheaper illustration of the original visual style; the new scenes appear in the native performance window. Scene selection can change while output is running. Flashing stays off by default.
+Start with **Visual scene → Bass Web** or **Ribbon Reactor** during playback. Kicks travel through the geometry, mids bend and braid it, and highs pluck or fracture individual lines. Choose **Auto** for the complete music-directed library. The **Ambient preview** remains a cheaper illustration of the original visual style; the new scenes appear in the native performance window. Scene selection can change while output is running. The six line worlds never use full-screen white flashes; the flash setting applies only to original patterns. Saved selections from 0.1.3 map to the corresponding new scene.
 
-On integrated GPUs, spatial scenes render internally at up to 1280×720 and upscale to the full display. Crossfades between two spatial scenes use 540p internally; sustained missed frame deadlines can lower resolution further. Discrete GPUs can use the existing HD ceiling for a single scene. These are quality budgets, not a guarantee of 60 FPS on every GPU.
+Single scenes use the existing 1920×1080 internal ceiling, including on integrated GPUs. Crossfades reserve a 720p ceiling. Sustained missed frame deadlines lower resolution, and recovery requires 20 seconds of stable timing. The presentation surface always fills the physical display. These are quality budgets, not a guarantee of 60 FPS on every GPU.
 
-A GPU-only synthetic audition and the measured release notes are described in [docs/visual-upgrade-0.1.3.md](docs/visual-upgrade-0.1.3.md).
+A GPU-only synthetic audition and the measured release notes are described in [docs/reactive-lines-0.1.4.md](docs/reactive-lines-0.1.4.md).
 
 ## Verification
 
