@@ -1,3 +1,5 @@
+import { tronShader } from "./tronShader";
+
 export const vertexShader = `#version 300 es
 precision highp float;
 void main() {
@@ -11,6 +13,7 @@ out vec4 fragColor;
 
 uniform vec2 u_resolution;
 uniform float u_time;
+uniform float u_tronTime;
 uniform vec4 u_music;
 uniform vec4 u_pulse;
 uniform vec4 u_visual;
@@ -200,7 +203,10 @@ vec3 ribbonFlowVisual(vec2 uv) {
   return light * (0.52 + u_music.y * 0.36);
 }
 
+${tronShader}
+
 vec3 visualFamily(int id, vec2 uv) {
+  if (id >= 32) return tron_scene(id, uv);
   if (id == 0) return wavesVisual(uv);
   if (id == 1) return bloomVisual(uv);
   if (id == 2) return pulseVisual(uv);
@@ -215,6 +221,13 @@ vec3 visualFamily(int id, vec2 uv) {
 void main() {
   vec2 resolution = max(u_resolution, vec2(1.0));
   vec2 uv = (gl_FragCoord.xy * 2.0 - resolution) / resolution.y;
+  if (u_styleA.x >= 32.0 && u_styleA.y >= 32.0) {
+    vec3 neon = tron_scene(int(round(u_styleA.x)), vec2(uv.x, -uv.y)) * u_styleA.z;
+    if (u_styleA.w > 0.001) neon += tron_scene(int(round(u_styleA.y)), vec2(uv.x, -uv.y)) * u_styleA.w;
+    neon *= u_visual.w * 1.6;
+    fragColor = vec4(pow(1.0 - exp(-max(neon, vec3(0.0)) * 1.22), vec3(0.94)), 1.0);
+    return;
+  }
   float overdrive = clamp(u_effects.w, 0.0, 1.0);
   float hitForce = clamp(u_pulse.y * 0.85 + u_pulse.z * 0.45 + u_effects.y * 0.35, 0.0, 1.5);
   float beatZoom = modifierStrength(1.0);

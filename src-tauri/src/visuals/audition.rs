@@ -716,3 +716,72 @@ fn native_transition_audition() {
     }
     fs::write(output.join("transition-response.txt"), report).unwrap();
 }
+
+#[test]
+#[ignore = "requires a native GPU; checks and captures every Tron look"]
+fn native_tron_audition() {
+    let output = std::path::PathBuf::from("target/tron-audition");
+    fs::create_dir_all(&output).unwrap();
+    let mut stage = pollster::block_on(Stage::new());
+    let target = stage.target(640, 360);
+    let pixels = |path: &Path| {
+        let data = fs::read(path).unwrap();
+        data[data.len() - 640 * 360 * 3..].to_vec()
+    };
+    let mut images = Vec::new();
+    for id in 33..45 {
+        let mut uniforms = fixture(
+            id,
+            4.0,
+            0.5,
+            (640, 360),
+            SmoothedVisualState::default(),
+            0.0,
+            2.5,
+        );
+        uniforms.visual[3] = 0.65;
+        uniforms.reactive = [0.0; 4];
+        let file = output.join(format!("tron-{id}.ppm"));
+        stage.draw(uniforms, &target, Some(&file));
+        let baseline = pixels(&file);
+        assert!(
+            baseline.iter().filter(|v| **v > 40).count() > 1000,
+            "look {id} must be visible"
+        );
+        assert!(!images.contains(&baseline), "look {id} must be distinct");
+        images.push(baseline.clone());
+        uniforms.pulse[3] = 1.0;
+        stage.draw(uniforms, &target, Some(&file));
+        assert_eq!(baseline, pixels(&file), "Tron must ignore white flashes");
+        uniforms.pulse[3] = 0.0;
+        for lane in 0..3 {
+            uniforms.reactive = [0.0; 4];
+            uniforms.reactive[lane] = 0.9;
+            stage.draw(uniforms, &target, Some(&file));
+            let changed = pixels(&file);
+            let difference: usize = baseline
+                .iter()
+                .zip(&changed)
+                .map(|(a, b)| a.abs_diff(*b) as usize)
+                .sum();
+            assert!(difference > 10000, "look {id} must react to band {lane}");
+        }
+        uniforms.reactive = [0.0; 4];
+        uniforms.style_b[3] = 1.0;
+        stage.draw(uniforms, &target, Some(&file));
+        assert!(
+            pixels(&file).iter().all(|v| *v == 0),
+            "blackout must be black"
+        );
+        uniforms.style_b[3] = 0.0;
+        stage.draw(uniforms, &target, Some(&file));
+        // Cycling mode must visit the exact held looks.
+        uniforms.style_a = [32.0, 32.0, 1.0, 0.0];
+        uniforms.spatial[0] = (id - 33) as f32 * 8.0 + 1.0;
+        let cycle_file = output.join("cycle.ppm");
+        stage.draw(uniforms, &target, Some(&cycle_file));
+        uniforms.style_a = [id as f32, id as f32, 1.0, 0.0];
+        stage.draw(uniforms, &target, Some(&file));
+        assert_eq!(pixels(&cycle_file), pixels(&file));
+    }
+}

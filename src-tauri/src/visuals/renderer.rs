@@ -30,7 +30,9 @@ use super::{
 const PERFORMANCE_SHADER: &str = concat!(
     include_str!("../../shaders/performance.wgsl"),
     "\n",
-    include_str!("../../shaders/spatial.wgsl")
+    include_str!("../../shaders/spatial.wgsl"),
+    "\n",
+    include_str!("../../shaders/tron.wgsl")
 );
 
 const FRAME_INTERVAL: Duration = Duration::from_nanos(16_666_667);
@@ -1312,10 +1314,10 @@ fn draw_line_scenes(
 ) {
     const SEGMENTS: u32 = 48 * 96;
     pass.set_pipeline(pipeline);
-    if uniforms.style_a[0] >= 26.0 && uniforms.style_a[2] > 0.001 {
+    if (26.0..32.0).contains(&uniforms.style_a[0]) && uniforms.style_a[2] > 0.001 {
         pass.draw(0..6, 0..SEGMENTS);
     }
-    if uniforms.style_a[1] >= 26.0 && uniforms.style_a[3] > 0.001 {
+    if (26.0..32.0).contains(&uniforms.style_a[1]) && uniforms.style_a[3] > 0.001 {
         pass.draw(0..6, 8192..8192 + SEGMENTS);
     }
 }

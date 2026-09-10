@@ -1,5 +1,21 @@
 export type VisualStyle = "auto" | "fluid" | "waves" | "pulse" | "tunnel" | "burst";
-export type SceneSelection = "auto" | "magneticSwarm" | "liquidRelic" | "impossibleArchitecture" | "auroraVeil" | "kineticSculpture" | "topographicOcean";
+export const tronScenes = [
+  { id: "tron", label: "Tron · all 12 visuals", family: 32 },
+  { id: "tronGridHighway", label: "Grid Highway", family: 33 },
+  { id: "tronLightTrails", label: "Light Trails", family: 34 },
+  { id: "tronLaserGates", label: "Laser Gates", family: 35 },
+  { id: "tronHexCorridor", label: "Hex Corridor", family: 36 },
+  { id: "tronIdentityDiscs", label: "Identity Discs", family: 37 },
+  { id: "tronCircuitBoard", label: "Circuit Board", family: 38 },
+  { id: "tronNeonArena", label: "Neon Arena", family: 39 },
+  { id: "tronSolarSails", label: "Solar Sails", family: 40 },
+  { id: "tronDigitalCity", label: "Digital City", family: 41 },
+  { id: "tronHelixDrive", label: "Helix Drive", family: 42 },
+  { id: "tronDataRain", label: "Data Rain", family: 43 },
+  { id: "tronReactorIris", label: "Reactor Iris", family: 44 },
+] as const;
+
+export type SceneSelection = (typeof tronScenes)[number]["id"] | "auto" | "magneticSwarm" | "liquidRelic" | "impossibleArchitecture" | "auroraVeil" | "kineticSculpture" | "topographicOcean";
 export type IntensityProfile = "chill" | "balanced" | "wild";
 export type FlashProfile = "off" | "moderate" | "high";
 export type PaletteName =

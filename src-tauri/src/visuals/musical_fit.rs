@@ -48,6 +48,11 @@ impl MusicalFit {
         // Preferred energy, band affinity (bass/mids/highs), sharp articulation.
         // Phrase eligibility and recent composition filtering happen separately.
         let (energy, bands, articulation): (f32, [f32; 3], f32) = match family {
+            Tron | TronGridHighway | TronLightTrails | TronLaserGates | TronHexCorridor
+            | TronIdentityDiscs | TronCircuitBoard | TronNeonArena | TronSolarSails
+            | TronDigitalCity | TronHelixDrive | TronDataRain | TronReactorIris => {
+                (0.7, [0.8, 0.6, 0.8], 0.7)
+            }
             MagneticSwarm => (0.75, [1.0, 0.45, 0.65], 0.8), // Bass Web
             LiquidRelic => (0.58, [0.6, 1.0, 0.6], 0.4),     // Ribbon Reactor
             ImpossibleArchitecture => (0.88, [0.9, 0.3, 0.7], 0.8), // Shockwave Tunnel

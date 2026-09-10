@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { PerformanceCanvas } from "../visuals/PerformanceCanvas";
-import { defaultSettings } from "../visuals/types";
+import { defaultSettings, tronScenes } from "../visuals/types";
 import type {
   AudioSourceInfo,
   DiagnosticMode,
@@ -194,7 +194,7 @@ export function ControlApp() {
         </div>
         <div className="preview-caption">
           <span>{runtime?.running ? "Preview paused to preserve performance" : "Live response activates in the output"}</span>
-          <strong>32 scenes · reactive lines</strong>
+          <strong>32 auto scenes + 12 Tron looks</strong>
         </div>
       </section>
 
@@ -209,8 +209,11 @@ export function ControlApp() {
             <option value="auroraVeil">Aurora Strings · plucked fibers</option>
             <option value="kineticSculpture">Prism Surge · twisting fractures</option>
             <option value="topographicOcean">Faultline · rolling wire terrain</option>
+            <optgroup label="Tron collection">
+              {tronScenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.label}</option>)}
+            </optgroup>
           </select>
-          <small>Auto matches scenes to energy, bass, mids, and percussion. Select a scene to hold it. The ambient preview shows the original style.</small>
+          <small>Tron cycles through 12 neon worlds in signature cyan and orange. Pick a named look to hold it. Bass drives pulses, mids bend geometry, and highs light up signals. Tron appears in the ambient preview; other scenes preview the original style.</small>
         </label>
         <div className="setup-grid">
           <label className="field">

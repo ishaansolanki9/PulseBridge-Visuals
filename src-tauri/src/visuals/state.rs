@@ -38,6 +38,19 @@ pub enum SceneSelection {
     AuroraVeil,
     KineticSculpture,
     TopographicOcean,
+    Tron,
+    TronGridHighway,
+    TronLightTrails,
+    TronLaserGates,
+    TronHexCorridor,
+    TronIdentityDiscs,
+    TronCircuitBoard,
+    TronNeonArena,
+    TronSolarSails,
+    TronDigitalCity,
+    TronHelixDrive,
+    TronDataRain,
+    TronReactorIris,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]

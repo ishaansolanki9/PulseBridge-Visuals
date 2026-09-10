@@ -556,11 +556,17 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let spatial_vignette = 1.0 - smoothstep(0.25, 1.55, length(spatial_uv * vec2<f32>(0.7, 1.0)));
     let spatial_brightness = (0.32 + spatial_vignette * 0.78) * params.visual.w
         * (0.86 + params.pulse.y * 0.17 + bass_hit * 0.16 + energy_rise * 0.3);
-    if primary_id >= 26u && params.style_a.z > 0.001 {
+    if primary_id >= 26u && primary_id <= 31u && params.style_a.z > 0.001 {
         color += spatial_scene(primary_id, spatial_uv) * params.style_a.z * spatial_brightness;
     }
-    if secondary_id >= 26u && params.style_a.w > 0.001 {
+    if secondary_id >= 26u && secondary_id <= 31u && params.style_a.w > 0.001 {
         color += spatial_scene(secondary_id, spatial_uv) * params.style_a.w * spatial_brightness;
+    }
+    if primary_id >= 32u && params.style_a.z > 0.001 {
+        color += tron_scene(primary_id, spatial_uv) * params.style_a.z * params.visual.w * 1.6;
+    }
+    if secondary_id >= 32u && params.style_a.w > 0.001 {
+        color += tron_scene(secondary_id, spatial_uv) * params.style_a.w * params.visual.w * 1.6;
     }
     color = mix(color, vec3<f32>(1.0), params.pulse.w * legacy_weight * (0.54 + drive * 0.16));
     let luminance = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));

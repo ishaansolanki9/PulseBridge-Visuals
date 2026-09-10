@@ -2,6 +2,7 @@ import { useEffect, useRef } from "react";
 
 import { envelope, intensityValues, paletteColors } from "./model";
 import { fragmentShader, vertexShader } from "./shader";
+import { tronScenes } from "./types";
 import type { VisualSettings } from "./types";
 
 interface PerformanceCanvasProps {
@@ -41,6 +42,7 @@ export function PerformanceCanvas({ settings, className = "", paused = false }: 
     const uniforms = {
       resolution: location("u_resolution"),
       time: location("u_time"),
+      tronTime: location("u_tronTime"),
       music: location("u_music"),
       pulse: location("u_pulse"),
       visual: location("u_visual"),
@@ -58,6 +60,7 @@ export function PerformanceCanvas({ settings, className = "", paused = false }: 
     const startedAt = performance.now();
     let lastFrame = startedAt;
     let animationFrame = 0;
+    let tronClock = 0;
     const smoothed: SmoothedState = {
       primaryFamily: 3,
       secondaryFamily: 3,
@@ -74,11 +77,17 @@ export function PerformanceCanvas({ settings, className = "", paused = false }: 
       const delta = Math.max(0.001, Math.min(0.1, (now - lastFrame) / 1000));
       lastFrame = now;
       const currentSettings = settingsRef.current;
-      const targetFamily = 3;
+      const targetFamily = tronScenes.find((scene) => scene.id === currentSettings.scene)?.family ?? 3;
+      tronClock += delta * 0.33 * currentSettings.motion;
+      gl.uniform1f(uniforms.tronTime, tronClock);
       const targetColors = paletteColors(currentSettings.palette);
       const intensities = intensityValues(currentSettings.intensity);
       const drive = 0.12;
 
+      if (targetFamily === smoothed.primaryFamily && targetFamily !== smoothed.secondaryFamily) {
+        smoothed.secondaryFamily = smoothed.primaryFamily;
+        smoothed.transition = 0;
+      }
       if (targetFamily !== smoothed.primaryFamily && targetFamily !== smoothed.secondaryFamily) {
         smoothed.secondaryFamily = targetFamily;
         smoothed.transition = 0;

@@ -47,6 +47,19 @@ pub enum VisualFamily {
     AuroraVeil = 29,
     KineticSculpture = 30,
     TopographicOcean = 31,
+    Tron = 32,
+    TronGridHighway = 33,
+    TronLightTrails = 34,
+    TronLaserGates = 35,
+    TronHexCorridor = 36,
+    TronIdentityDiscs = 37,
+    TronCircuitBoard = 38,
+    TronNeonArena = 39,
+    TronSolarSails = 40,
+    TronDigitalCity = 41,
+    TronHelixDrive = 42,
+    TronDataRain = 43,
+    TronReactorIris = 44,
 }
 
 const ALL_ILLUSIONS: [VisualFamily; 32] = [
@@ -329,6 +342,20 @@ impl SceneDirector {
     pub fn set_focus(&mut self, selection: SceneSelection) {
         self.focus = match selection {
             SceneSelection::Auto => None,
+            SceneSelection::Tron => Some(VisualFamily::Tron),
+            SceneSelection::TronGridHighway => Some(VisualFamily::TronGridHighway),
+            SceneSelection::TronLightTrails => Some(VisualFamily::TronLightTrails),
+            SceneSelection::TronLaserGates => Some(VisualFamily::TronLaserGates),
+            SceneSelection::TronHexCorridor => Some(VisualFamily::TronHexCorridor),
+            SceneSelection::TronIdentityDiscs => Some(VisualFamily::TronIdentityDiscs),
+            SceneSelection::TronCircuitBoard => Some(VisualFamily::TronCircuitBoard),
+            SceneSelection::TronNeonArena => Some(VisualFamily::TronNeonArena),
+            SceneSelection::TronSolarSails => Some(VisualFamily::TronSolarSails),
+            SceneSelection::TronDigitalCity => Some(VisualFamily::TronDigitalCity),
+            SceneSelection::TronHelixDrive => Some(VisualFamily::TronHelixDrive),
+            SceneSelection::TronDataRain => Some(VisualFamily::TronDataRain),
+            SceneSelection::TronReactorIris => Some(VisualFamily::TronReactorIris),
+
             SceneSelection::MagneticSwarm => Some(VisualFamily::MagneticSwarm),
             SceneSelection::LiquidRelic => Some(VisualFamily::LiquidRelic),
             SceneSelection::ImpossibleArchitecture => Some(VisualFamily::ImpossibleArchitecture),
@@ -1614,6 +1641,48 @@ mod spatial_tests {
         frame.reactivity = 0.0;
         assert_eq!(event.update(61.0, frame, IntensityProfile::Wild), 0.0);
     }
+    #[test]
+    fn tron_selections_round_trip_and_remain_held() {
+        let choices = [
+            "tron",
+            "tronGridHighway",
+            "tronLightTrails",
+            "tronLaserGates",
+            "tronHexCorridor",
+            "tronIdentityDiscs",
+            "tronCircuitBoard",
+            "tronNeonArena",
+            "tronSolarSails",
+            "tronDigitalCity",
+            "tronHelixDrive",
+            "tronDataRain",
+            "tronReactorIris",
+        ];
+        for (index, key) in choices.iter().enumerate() {
+            let selection: SceneSelection = serde_json::from_value(serde_json::json!(key)).unwrap();
+            assert_eq!(
+                serde_json::to_value(selection).unwrap(),
+                serde_json::json!(key)
+            );
+            let mut director = SceneDirector::new(45);
+            director.set_focus(selection);
+            for time in [0.0, 20.0, 100.0] {
+                let plan = director.update(
+                    time,
+                    std::time::Instant::now(),
+                    VisualInputFrame::default(),
+                    &PlaybackContext::default(),
+                    VisualStyle::Auto,
+                    IntensityProfile::Balanced,
+                );
+                assert_eq!(plan.primary.id(), (32 + index) as f32);
+                assert!(plan.secondary.is_none());
+            }
+            director.set_focus(SceneSelection::Auto);
+            assert!(director.focus.is_none());
+        }
+    }
+
     #[test]
     fn held_scene_survives_phrases_and_can_return_to_auto() {
         let now = std::time::Instant::now();
