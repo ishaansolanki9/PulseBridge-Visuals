@@ -13,5 +13,6 @@ pub use renderer::{
 };
 pub(crate) use state::{intensity_ceiling, intensity_values, FlashEnvelope};
 pub use state::{
-    IntensityProfile, PaletteName, SceneSelection, SmoothedVisualState, VisualSettings, VisualStyle,
+    IntensityProfile, PaletteName, SceneSelection, SmoothedVisualState, VisualDimension,
+    VisualSettings, VisualStyle,
 };

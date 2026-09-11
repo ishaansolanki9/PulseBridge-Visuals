@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { PerformanceCanvas } from "../visuals/PerformanceCanvas";
-import { defaultSettings, tronScenes } from "../visuals/types";
+import { defaultSettings, tronScenes, spatialScenes, sceneMatchesDimension } from "../visuals/types";
 import type {
   AudioSourceInfo,
   DiagnosticMode,
@@ -14,6 +14,7 @@ import type {
   SceneSelection,
   RuntimeSnapshot,
   VisualSettings,
+  VisualDimension,
 } from "../visuals/types";
 import { controlTransport, isNativeApp } from "./transport";
 
@@ -105,6 +106,8 @@ export function ControlApp() {
 
   const changeSettings = (change: Partial<VisualSettings>) => {
     const next = { ...settings, ...change };
+    const selected = [...spatialScenes, ...tronScenes].find((scene) => scene.id === next.scene);
+    if (selected && !sceneMatchesDimension(selected.family, next.dimension)) next.scene = "auto";
     setSettings(next);
     setRuntime((current) => current ? { ...current, settings: next } : current);
     setError(null);
@@ -194,26 +197,32 @@ export function ControlApp() {
         </div>
         <div className="preview-caption">
           <span>{runtime?.running ? "Preview paused to preserve performance" : "Live response activates in the output"}</span>
-          <strong>32 auto scenes + 12 Tron looks</strong>
+          <strong>52 looks · 2D + 3D</strong>
         </div>
       </section>
 
       <section className="control-card" aria-label="Visual controls">
+        <div className="field scene-field">
+          <span>Dimensions</span>
+          <div className="segmented-control" role="group" aria-label="Visual dimensions">
+            {([{ id: "twoD", label: "2D" }, { id: "threeD", label: "3D" }, { id: "combined", label: "Combined" }] as const).map((mode) => (
+              <button key={mode.id} type="button" aria-pressed={settings.dimension === mode.id} className={settings.dimension === mode.id ? "is-selected" : ""} onClick={() => changeSettings({ dimension: mode.id as VisualDimension })}>{mode.label}</button>
+            ))}
+          </div>
+          <small>2D keeps flat patterns. 3D keeps depth and spatial worlds. Combined lets Auto and Tron transition between both.</small>
+        </div>
         <label className="field scene-field">
           <span>Visual scene</span>
           <select value={settings.scene} onChange={(event) => changeSettings({ scene: event.target.value as SceneSelection })}>
             <option value="auto">Auto · matches the music</option>
-            <option value="magneticSwarm">Bass Web · traveling shockwaves</option>
-            <option value="liquidRelic">Ribbon Reactor · bending & braiding</option>
-            <option value="impossibleArchitecture">Shockwave Tunnel · folding light</option>
-            <option value="auroraVeil">Aurora Strings · plucked fibers</option>
-            <option value="kineticSculpture">Prism Surge · twisting fractures</option>
-            <option value="topographicOcean">Faultline · rolling wire terrain</option>
+            <optgroup label="3D worlds">
+              {spatialScenes.filter((scene) => sceneMatchesDimension(scene.family, settings.dimension)).map((scene) => <option key={scene.id} value={scene.id}>{scene.label}</option>)}
+            </optgroup>
             <optgroup label="Tron collection">
-              {tronScenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.label}</option>)}
+              {tronScenes.filter((scene) => sceneMatchesDimension(scene.family, settings.dimension)).map((scene) => <option key={scene.id} value={scene.id}>{scene.label}</option>)}
             </optgroup>
           </select>
-          <small>Tron cycles through 12 neon worlds in signature cyan and orange. Pick a named look to hold it. Bass sends traveling shockwaves, mids steer and fold structures, and percussion launches signals and fragments. Tron appears in the ambient preview; other scenes preview the original style.</small>
+          <small>Tron cycles through {tronScenes.filter((scene) => scene.family !== 32 && sceneMatchesDimension(scene.family, settings.dimension)).length} neon worlds in this mode. Pick a named look to hold it. Bass sends traveling shockwaves, mids steer and fold structures, and percussion launches signals and fragments. The preview shows quiet motion; live audio brings the geometry to life.</small>
         </label>
         <div className="setup-grid">
           <label className="field">

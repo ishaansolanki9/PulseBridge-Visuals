@@ -2,7 +2,8 @@ import { useEffect, useRef } from "react";
 
 import { envelope, intensityValues, paletteColors } from "./model";
 import { fragmentShader, vertexShader } from "./shader";
-import { tronScenes } from "./types";
+import { SpatialPreview } from "./SpatialPreview";
+import { tronScenes, spatialScenes } from "./types";
 import type { VisualSettings } from "./types";
 
 interface PerformanceCanvasProps {
@@ -18,7 +19,14 @@ interface SmoothedState {
   colors: number[][];
 }
 
-export function PerformanceCanvas({ settings, className = "", paused = false }: PerformanceCanvasProps) {
+export function PerformanceCanvas(props: PerformanceCanvasProps) {
+  const selected = spatialScenes.find((scene) => scene.id === props.settings.scene);
+  const family = selected?.family ?? (props.settings.scene === "auto" && props.settings.dimension === "threeD" ? 49 : undefined);
+  if (family !== undefined) return <SpatialPreview settings={props.settings} family={family} className={props.className ?? ""} paused={props.paused ?? false} />;
+  return <AmbientShaderCanvas {...props} />;
+}
+
+function AmbientShaderCanvas({ settings, className = "", paused = false }: PerformanceCanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const settingsRef = useRef(settings);
   settingsRef.current = settings;
@@ -43,6 +51,7 @@ export function PerformanceCanvas({ settings, className = "", paused = false }: 
       resolution: location("u_resolution"),
       time: location("u_time"),
       tronTime: location("u_tronTime"),
+      dimension: location("u_dimension"),
       music: location("u_music"),
       pulse: location("u_pulse"),
       visual: location("u_visual"),
@@ -80,6 +89,7 @@ export function PerformanceCanvas({ settings, className = "", paused = false }: 
       const targetFamily = tronScenes.find((scene) => scene.id === currentSettings.scene)?.family ?? 3;
       tronClock += delta * 0.33 * currentSettings.motion;
       gl.uniform1f(uniforms.tronTime, tronClock);
+      gl.uniform1f(uniforms.dimension, currentSettings.dimension === "twoD" ? 1 : currentSettings.dimension === "threeD" ? 2 : 0);
       const targetColors = paletteColors(currentSettings.palette);
       const intensities = intensityValues(currentSettings.intensity);
       const drive = 0.12;

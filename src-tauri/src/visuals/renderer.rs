@@ -569,6 +569,7 @@ impl Renderer {
                 .read()
                 .unwrap_or_else(|poisoned| poisoned.into_inner())
                 .clone();
+            director.set_dimension(current_settings.dimension);
             director.set_focus(current_settings.scene);
             let scene = director.update(
                 elapsed,
@@ -733,7 +734,7 @@ impl Renderer {
                     ),
                     current_settings.color_change,
                     legacy_clock,
-                    0.0,
+                    current_settings.dimension.id(),
                 ],
             };
             let presented = renderer.render(uniforms)?;
@@ -1314,10 +1315,14 @@ fn draw_line_scenes(
 ) {
     const SEGMENTS: u32 = 48 * 96;
     pass.set_pipeline(pipeline);
-    if (26.0..32.0).contains(&uniforms.style_a[0]) && uniforms.style_a[2] > 0.001 {
+    if ((26.0..32.0).contains(&uniforms.style_a[0]) || (49.0..53.0).contains(&uniforms.style_a[0]))
+        && uniforms.style_a[2] > 0.001
+    {
         pass.draw(0..6, 0..SEGMENTS);
     }
-    if (26.0..32.0).contains(&uniforms.style_a[1]) && uniforms.style_a[3] > 0.001 {
+    if ((26.0..32.0).contains(&uniforms.style_a[1]) || (49.0..53.0).contains(&uniforms.style_a[1]))
+        && uniforms.style_a[3] > 0.001
+    {
         pass.draw(0..6, 8192..8192 + SEGMENTS);
     }
 }

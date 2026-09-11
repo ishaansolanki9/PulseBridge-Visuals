@@ -164,7 +164,7 @@ fn tron_look(p: vec2<f32>, look: u32, t: f32) -> vec3<f32> {
         let x: f32 = abs(fract((swept + rain.z * sin(column) * 0.045) * 22.0) - 0.5);
         let dash: f32 = 1.0 - smoothstep(0.26, 0.42, abs(fract((p.y - rain.z * seed * 0.4) * 24.0) - 0.5));
         light += mix(cyan, orange, step(0.8, seed)) * tron_glow(x, 0.07) * dash * pow(head, 8.0) * (1.0 + highs);
-    } else {
+    } else if look == 11u {
         // Mechanical iris: independent articulated blades, opening and latching.
         light += cyan * tron_glow(abs(r - 0.75), 0.006) * 0.45;
         for (var i: u32 = 0u; i < 24u; i += 1u) {
@@ -181,19 +181,81 @@ fn tron_look(p: vec2<f32>, look: u32, t: f32) -> vec3<f32> {
             light += (orange * rib + cyan * ring_tip) * 1.6;
         }
         light += blue * exp(-r * 8.0) * 0.12;
+    } else if look == 12u {
+        // Neon Mandala: articulated petals open in a traveling circular wave.
+        for (var i: u32 = 0u; i < 18u; i += 1u) {
+            let fi: f32 = f32(i);
+            let signal: vec4<f32> = tron_signal(fi * 0.045);
+            let a: f32 = fi * 6.2831853 / 18.0 + t * 0.12 + signal.y * 0.5;
+            let q: vec2<f32> = rotate2(p, a);
+            let bend: f32 = signal.y * sin(q.x * 5.0 + fi) * 0.18;
+            let petal: vec2<f32> = vec2<f32>(q.x - 0.4 - signal.x * 0.3, (q.y + bend) * (3.0 + signal.z * 2.5));
+            let edge: f32 = length(petal) - 0.34;
+            light += mix(cyan, orange, f32(i % 3u) * 0.5) * tron_glow(edge, 0.004) * 0.75;
+        }
+    } else if look == 13u {
+        // Plasma Weave: crossing ribbons carry independent spectral ripples.
+        for (var i: u32 = 0u; i < 14u; i += 1u) {
+            let fi: f32 = f32(i);
+            let signal: vec4<f32> = tron_signal(clamp((p.x + 1.8) * 0.23 + fi * 0.013, 0.0, 0.95));
+            let wave: f32 = sin(p.x * 2.6 + fi * 0.45 + t * 0.4) * (0.14 + signal.x * 0.25);
+            let fold: f32 = sin(p.x * 5.0 - fi * 0.6) * signal.y * 0.2;
+            let tear: f32 = sin(p.x * 16.0 + fi) * signal.z * 0.06;
+            let y: f32 = (fi - 6.5) * 0.1 + wave + fold + tear;
+            light += mix(cyan, vec3<f32>(0.9, 0.03, 0.75), fi / 13.0) * tron_glow(p.y - y, 0.005);
+            light += orange * tron_glow(p.x - (fi - 6.5) * 0.15 - sin(p.y * 4.0 + fi + t * 0.25) * (0.2 + signal.y * 0.25), 0.003) * 0.35;
+        }
+    } else if look == 14u {
+        // Spectrum Bloom: nested flowers shear and split in different directions.
+        let angle: f32 = atan2(p.y, p.x);
+        for (var i: u32 = 0u; i < 12u; i += 1u) {
+            let fi: f32 = f32(i);
+            let signal: vec4<f32> = tron_signal(fi * 0.075);
+            let petal: f32 = sin(angle * 6.0 + fi * 0.4 + t * 0.3 + signal.y * 2.5);
+            let shape: f32 = 0.13 + fi * 0.07 + petal * (0.045 + signal.x * 0.12) + sin(angle * 18.0 + fi) * signal.z * 0.055;
+            light += mix(vec3<f32>(0.95, 0.04, 0.5), cyan, fi / 11.0) * tron_glow(r - shape, 0.004);
+        }
+    } else {
+        // Chromatic Moire: offset luminous interference sheets shear past each other.
+        let signal: vec4<f32> = tron_signal(clamp((p.y + 1.0) * 0.42, 0.0, 0.95));
+        let q: vec2<f32> = rotate2(p, 0.35 + signal.y * 0.65);
+        let warp: f32 = sin(q.x * 3.0 + t * 0.25) * (0.12 + signal.x * 0.3);
+        let a: f32 = sin((q.y + warp) * 27.0 + signal.z * sin(q.x * 11.0) * 2.0);
+        let b: f32 = sin((q.x + sin(q.y * 2.3 - t * 0.2) * (0.2 + signal.y * 0.3)) * 24.0);
+        light += cyan * tron_glow(a, 0.05) * 0.65;
+        light += vec3<f32>(0.95, 0.03, 0.55) * tron_glow(b, 0.05) * 0.65;
     }
     return light * (0.9 + params.reactive.w * 0.35) + orange * light.b * highs * 0.15;
 }
 
+fn tron_variant(index: u32, dimension: u32) -> u32 {
+    if dimension == 1u {
+        let i: u32 = index % 9u;
+        if i == 0u { return 4u; }
+        if i == 1u { return 5u; }
+        if i == 2u { return 7u; }
+        if i == 3u { return 10u; }
+        if i == 4u { return 11u; }
+        return i + 7u;
+    }
+    if dimension == 2u {
+        let i: u32 = index % 7u;
+        if i < 4u { return i; }
+        if i == 4u { return 6u; }
+        if i == 5u { return 8u; }
+        return 9u;
+    }
+    return index % 16u;
+}
+
 fn tron_scene(id: u32, uv: vec2<f32>) -> vec3<f32> {
     let t: f32 = params.spatial.x;
-    let p: vec2<f32> = uv;
-    if id != 32u { return tron_look(p, id - 33u, t); }
-    // Long dwell, then a gentle dissolve; integrated motion never jumps on hits.
+    if id != 32u { return tron_look(uv, id - 33u, t); }
+    let dimension: u32 = u32(round(params.chromatic.w));
     let chapter: f32 = t / 8.0;
-    let current: u32 = u32(floor(chapter)) % 12u;
+    let current: u32 = u32(floor(chapter));
     let blend: f32 = smoothstep(0.8, 1.0, fract(chapter));
-    let outgoing: vec3<f32> = tron_look(p, current, t);
+    let outgoing: vec3<f32> = tron_look(uv, tron_variant(current, dimension), t);
     if blend <= 0.0 { return outgoing; }
-    return mix(outgoing, tron_look(p, (current + 1u) % 12u, t), blend);
+    return mix(outgoing, tron_look(uv, tron_variant(current + 1u, dimension), t), blend);
 }

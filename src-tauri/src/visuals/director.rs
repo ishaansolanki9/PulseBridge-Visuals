@@ -5,7 +5,7 @@ use crate::{
     phrase::{PhraseKind, PhraseProvenance, PlaybackContext},
 };
 
-use super::{IntensityProfile, PaletteName, SceneSelection, VisualStyle};
+use super::{IntensityProfile, PaletteName, SceneSelection, VisualDimension, VisualStyle};
 
 const HISTORY_LIMIT: usize = 8;
 const MIN_DWELL_SECONDS: f32 = 8.0;
@@ -60,9 +60,17 @@ pub enum VisualFamily {
     TronHelixDrive = 42,
     TronDataRain = 43,
     TronReactorIris = 44,
+    NeonMandala = 45,
+    PlasmaWeave = 46,
+    SpectrumBloom = 47,
+    ChromaticMoire = 48,
+    OrbitFoundry = 49,
+    SynapseBloom = 50,
+    GravityBraids = 51,
+    PrismConveyor = 52,
 }
 
-const ALL_ILLUSIONS: [VisualFamily; 32] = [
+const ALL_ILLUSIONS: [VisualFamily; 40] = [
     VisualFamily::WarpSpiral,
     VisualFamily::MoireRings,
     VisualFamily::InfiniteChecker,
@@ -95,6 +103,14 @@ const ALL_ILLUSIONS: [VisualFamily; 32] = [
     VisualFamily::AuroraVeil,
     VisualFamily::KineticSculpture,
     VisualFamily::TopographicOcean,
+    VisualFamily::NeonMandala,
+    VisualFamily::PlasmaWeave,
+    VisualFamily::SpectrumBloom,
+    VisualFamily::ChromaticMoire,
+    VisualFamily::OrbitFoundry,
+    VisualFamily::SynapseBloom,
+    VisualFamily::GravityBraids,
+    VisualFamily::PrismConveyor,
 ];
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -124,7 +140,7 @@ pub struct ModifierState {
 
 impl VisualFamily {
     pub fn is_spatial(self) -> bool {
-        self as u32 >= 26
+        matches!(self as u32, 26..=36 | 39 | 41..=42 | 49..=52)
     }
 
     // Composition classes let Auto avoid another tunnel just after a tunnel,
@@ -298,6 +314,7 @@ pub struct SceneDirector {
     session_seed: u64,
     current_primary: VisualFamily,
     focus: Option<VisualFamily>,
+    dimension: VisualDimension,
     last_switch_seconds: f32,
     active_transition: Option<(VisualFamily, VisualFamily, f32, f32)>,
     last_phrase_key: Option<u64>,
@@ -321,6 +338,7 @@ impl SceneDirector {
             session_seed: session_seed.max(1),
             current_primary: VisualFamily::WarpSpiral,
             focus: None,
+            dimension: VisualDimension::Combined,
             last_switch_seconds: -MIN_DWELL_SECONDS,
             active_transition: None,
             last_phrase_key: None,
@@ -339,30 +357,20 @@ impl SceneDirector {
         }
     }
 
-    pub fn set_focus(&mut self, selection: SceneSelection) {
-        self.focus = match selection {
-            SceneSelection::Auto => None,
-            SceneSelection::Tron => Some(VisualFamily::Tron),
-            SceneSelection::TronGridHighway => Some(VisualFamily::TronGridHighway),
-            SceneSelection::TronLightTrails => Some(VisualFamily::TronLightTrails),
-            SceneSelection::TronLaserGates => Some(VisualFamily::TronLaserGates),
-            SceneSelection::TronHexCorridor => Some(VisualFamily::TronHexCorridor),
-            SceneSelection::TronIdentityDiscs => Some(VisualFamily::TronIdentityDiscs),
-            SceneSelection::TronCircuitBoard => Some(VisualFamily::TronCircuitBoard),
-            SceneSelection::TronNeonArena => Some(VisualFamily::TronNeonArena),
-            SceneSelection::TronSolarSails => Some(VisualFamily::TronSolarSails),
-            SceneSelection::TronDigitalCity => Some(VisualFamily::TronDigitalCity),
-            SceneSelection::TronHelixDrive => Some(VisualFamily::TronHelixDrive),
-            SceneSelection::TronDataRain => Some(VisualFamily::TronDataRain),
-            SceneSelection::TronReactorIris => Some(VisualFamily::TronReactorIris),
+    pub fn set_dimension(&mut self, dimension: VisualDimension) {
+        if self.dimension != dimension {
+            self.dimension = dimension;
+            self.last_phrase_key = None;
+            self.pending_choice = None;
+            self.active_transition = None;
+            self.recent.clear();
+        }
+    }
 
-            SceneSelection::MagneticSwarm => Some(VisualFamily::MagneticSwarm),
-            SceneSelection::LiquidRelic => Some(VisualFamily::LiquidRelic),
-            SceneSelection::ImpossibleArchitecture => Some(VisualFamily::ImpossibleArchitecture),
-            SceneSelection::AuroraVeil => Some(VisualFamily::AuroraVeil),
-            SceneSelection::KineticSculpture => Some(VisualFamily::KineticSculpture),
-            SceneSelection::TopographicOcean => Some(VisualFamily::TopographicOcean),
-        };
+    pub fn set_focus(&mut self, selection: SceneSelection) {
+        self.focus = selection_family(selection).filter(|family| {
+            *family == VisualFamily::Tron || self.dimension.allows(family.is_spatial())
+        });
     }
 
     pub fn update(
@@ -592,7 +600,15 @@ impl SceneDirector {
     }
 
     fn choose_primary(&self, phrase: PhraseKind, key: u64) -> VisualFamily {
-        let candidates = candidates_for_phrase(phrase);
+        let eligible = |family: &&VisualFamily| self.dimension.allows(family.is_spatial());
+        let mut candidates: Vec<_> = candidates_for_phrase(phrase)
+            .iter()
+            .filter(eligible)
+            .copied()
+            .collect();
+        if candidates.is_empty() {
+            candidates = ALL_ILLUSIONS.iter().filter(eligible).copied().collect();
+        }
         let last_composition = self.recent.back().map(|scene| scene.0.composition());
         let recent = |family: VisualFamily| {
             self.recent
@@ -787,6 +803,9 @@ fn candidates_for_phrase(kind: PhraseKind) -> &'static [VisualFamily] {
             VisualFamily::WarpSpiral,
         ],
         PhraseKind::Chorus | PhraseKind::Fill => &[
+            VisualFamily::NeonMandala,
+            VisualFamily::OrbitFoundry,
+            VisualFamily::SynapseBloom,
             VisualFamily::MagneticSwarm,
             VisualFamily::LiquidRelic,
             VisualFamily::ImpossibleArchitecture,
@@ -811,6 +830,11 @@ fn candidates_for_phrase(kind: PhraseKind) -> &'static [VisualFamily] {
             VisualFamily::DiamondDrift,
         ],
         PhraseKind::Bridge => &[
+            VisualFamily::PlasmaWeave,
+            VisualFamily::SpectrumBloom,
+            VisualFamily::ChromaticMoire,
+            VisualFamily::GravityBraids,
+            VisualFamily::PrismConveyor,
             VisualFamily::TopographicOcean,
             VisualFamily::KineticSculpture,
             VisualFamily::QuantumWeave,
@@ -1463,12 +1487,12 @@ mod tests {
     }
 
     #[test]
-    fn auto_library_contains_thirty_two_distinct_scenes() {
+    fn auto_library_contains_forty_distinct_scenes() {
         let distinct = ALL_ILLUSIONS
             .iter()
             .copied()
             .collect::<std::collections::HashSet<_>>();
-        assert_eq!(ALL_ILLUSIONS.len(), 32);
+        assert_eq!(ALL_ILLUSIONS.len(), 40);
         assert_eq!(distinct.len(), ALL_ILLUSIONS.len());
     }
 
@@ -1754,7 +1778,7 @@ mod spatial_tests {
         ] {
             reachable.extend(candidates_for_phrase(kind).iter().copied());
         }
-        assert_eq!(reachable.len(), 32);
+        assert_eq!(reachable.len(), 40);
         let mut director = SceneDirector::new(71);
         director.remember(VisualFamily::LiquidRelic, None, 1);
         for key in 0..50 {
@@ -1771,6 +1795,135 @@ mod spatial_tests {
         {
             assert!(!modifier_compatible(family, ModifierKind::MirrorFold));
             assert!(!modifier_compatible(family, ModifierKind::ChromaticSplit));
+        }
+    }
+}
+
+pub(crate) fn selection_family(selection: SceneSelection) -> Option<VisualFamily> {
+    match selection {
+        SceneSelection::Auto => None,
+        SceneSelection::NeonMandala => Some(VisualFamily::NeonMandala),
+        SceneSelection::PlasmaWeave => Some(VisualFamily::PlasmaWeave),
+        SceneSelection::SpectrumBloom => Some(VisualFamily::SpectrumBloom),
+        SceneSelection::ChromaticMoire => Some(VisualFamily::ChromaticMoire),
+        SceneSelection::OrbitFoundry => Some(VisualFamily::OrbitFoundry),
+        SceneSelection::SynapseBloom => Some(VisualFamily::SynapseBloom),
+        SceneSelection::GravityBraids => Some(VisualFamily::GravityBraids),
+        SceneSelection::PrismConveyor => Some(VisualFamily::PrismConveyor),
+        SceneSelection::Tron => Some(VisualFamily::Tron),
+        SceneSelection::TronGridHighway => Some(VisualFamily::TronGridHighway),
+        SceneSelection::TronLightTrails => Some(VisualFamily::TronLightTrails),
+        SceneSelection::TronLaserGates => Some(VisualFamily::TronLaserGates),
+        SceneSelection::TronHexCorridor => Some(VisualFamily::TronHexCorridor),
+        SceneSelection::TronIdentityDiscs => Some(VisualFamily::TronIdentityDiscs),
+        SceneSelection::TronCircuitBoard => Some(VisualFamily::TronCircuitBoard),
+        SceneSelection::TronNeonArena => Some(VisualFamily::TronNeonArena),
+        SceneSelection::TronSolarSails => Some(VisualFamily::TronSolarSails),
+        SceneSelection::TronDigitalCity => Some(VisualFamily::TronDigitalCity),
+        SceneSelection::TronHelixDrive => Some(VisualFamily::TronHelixDrive),
+        SceneSelection::TronDataRain => Some(VisualFamily::TronDataRain),
+        SceneSelection::TronReactorIris => Some(VisualFamily::TronReactorIris),
+
+        SceneSelection::MagneticSwarm => Some(VisualFamily::MagneticSwarm),
+        SceneSelection::LiquidRelic => Some(VisualFamily::LiquidRelic),
+        SceneSelection::ImpossibleArchitecture => Some(VisualFamily::ImpossibleArchitecture),
+        SceneSelection::AuroraVeil => Some(VisualFamily::AuroraVeil),
+        SceneSelection::KineticSculpture => Some(VisualFamily::KineticSculpture),
+        SceneSelection::TopographicOcean => Some(VisualFamily::TopographicOcean),
+    }
+}
+
+#[cfg(test)]
+mod dimension_tests {
+    use super::*;
+
+    #[test]
+    fn every_phrase_respects_the_dimension_and_modes_can_change_live() {
+        let now = std::time::Instant::now();
+        let mut director = SceneDirector::new(912);
+        for dimension in [
+            VisualDimension::ThreeD,
+            VisualDimension::TwoD,
+            VisualDimension::Combined,
+        ] {
+            director.set_dimension(dimension);
+            director.set_focus(SceneSelection::Auto);
+            for (index, kind) in [
+                PhraseKind::Intro,
+                PhraseKind::Verse,
+                PhraseKind::Up,
+                PhraseKind::Chorus,
+                PhraseKind::Down,
+                PhraseKind::Bridge,
+                PhraseKind::Outro,
+                PhraseKind::Fill,
+                PhraseKind::Unknown,
+            ]
+            .iter()
+            .enumerate()
+            {
+                for key in 0..30 {
+                    let family = director.choose_primary(*kind, key);
+                    assert!(
+                        dimension.allows(family.is_spatial()),
+                        "{dimension:?}: {family:?}"
+                    );
+                }
+                let plan = director.update(
+                    index as f32 * 20.0,
+                    now,
+                    VisualInputFrame::default(),
+                    &PlaybackContext::default(),
+                    VisualStyle::Auto,
+                    IntensityProfile::Balanced,
+                );
+                assert!(dimension.allows(plan.primary.is_spatial()));
+                assert!(plan
+                    .secondary
+                    .is_none_or(|family| dimension.allows(family.is_spatial())));
+            }
+        }
+    }
+
+    #[test]
+    fn old_settings_default_to_combined_and_incompatible_holds_return_to_auto() {
+        let old: super::super::VisualSettings =
+            serde_json::from_str(r#"{"scene":"liquidRelic"}"#).unwrap();
+        assert_eq!(old.dimension, VisualDimension::Combined);
+        assert_eq!(old.scene, SceneSelection::LiquidRelic);
+        for (dimension, compatible, incompatible) in [
+            (
+                VisualDimension::TwoD,
+                SceneSelection::NeonMandala,
+                SceneSelection::OrbitFoundry,
+            ),
+            (
+                VisualDimension::ThreeD,
+                SceneSelection::OrbitFoundry,
+                SceneSelection::NeonMandala,
+            ),
+        ] {
+            let mut settings = old.clone();
+            settings.dimension = dimension;
+            settings.scene = compatible;
+            assert_eq!(settings.clone().sanitized().scene, compatible);
+            settings.scene = incompatible;
+            assert_eq!(settings.clone().sanitized().scene, SceneSelection::Auto);
+            settings.scene = SceneSelection::Tron;
+            assert_eq!(settings.sanitized().scene, SceneSelection::Tron);
+        }
+        for (key, family) in [
+            ("neonMandala", 45),
+            ("plasmaWeave", 46),
+            ("spectrumBloom", 47),
+            ("chromaticMoire", 48),
+            ("orbitFoundry", 49),
+            ("synapseBloom", 50),
+            ("gravityBraids", 51),
+            ("prismConveyor", 52),
+        ] {
+            let selection: SceneSelection = serde_json::from_value(serde_json::json!(key)).unwrap();
+            assert_eq!(selection_family(selection).unwrap().id(), family as f32);
         }
     }
 }

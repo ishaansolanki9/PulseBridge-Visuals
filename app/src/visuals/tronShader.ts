@@ -168,7 +168,7 @@ vec3 tron_look(vec2 p, int look, float t) {
         float x = abs(fract((swept + rain.z * sin(column) * 0.045) * 22.0) - 0.5);
         float dash = 1.0 - smoothstep(0.26, 0.42, abs(fract((p.y - rain.z * seed * 0.4) * 24.0) - 0.5));
         light += mix(cyan, orange, step(0.8, seed)) * tron_glow(x, 0.07) * dash * pow(head, 8.0) * (1.0 + highs);
-    } else {
+    } else if (look == 11) {
         // Mechanical iris: independent articulated blades, opening and latching.
         light += cyan * tron_glow(abs(r - 0.75), 0.006) * 0.45;
         for (int i = 0; i < 24; i += 1) {
@@ -185,20 +185,82 @@ vec3 tron_look(vec2 p, int look, float t) {
             light += (orange * rib + cyan * ring_tip) * 1.6;
         }
         light += blue * exp(-r * 8.0) * 0.12;
+    } else if (look == 12) {
+        // Neon Mandala: articulated petals open in a traveling circular wave.
+        for (int i = 0; i < 18; i += 1) {
+            float fi = float(i);
+            vec4 signal = tron_signal(fi * 0.045);
+            float a = fi * 6.2831853 / 18.0 + t * 0.12 + signal.y * 0.5;
+            vec2 q = rotate2(p, a);
+            float bend = signal.y * sin(q.x * 5.0 + fi) * 0.18;
+            vec2 petal = vec2(q.x - 0.4 - signal.x * 0.3, (q.y + bend) * (3.0 + signal.z * 2.5));
+            float edge = length(petal) - 0.34;
+            light += mix(cyan, orange, float(i % 3) * 0.5) * tron_glow(edge, 0.004) * 0.75;
+        }
+    } else if (look == 13) {
+        // Plasma Weave: crossing ribbons carry independent spectral ripples.
+        for (int i = 0; i < 14; i += 1) {
+            float fi = float(i);
+            vec4 signal = tron_signal(clamp((p.x + 1.8) * 0.23 + fi * 0.013, 0.0, 0.95));
+            float wave = sin(p.x * 2.6 + fi * 0.45 + t * 0.4) * (0.14 + signal.x * 0.25);
+            float fold = sin(p.x * 5.0 - fi * 0.6) * signal.y * 0.2;
+            float tear = sin(p.x * 16.0 + fi) * signal.z * 0.06;
+            float y = (fi - 6.5) * 0.1 + wave + fold + tear;
+            light += mix(cyan, vec3(0.9, 0.03, 0.75), fi / 13.0) * tron_glow(p.y - y, 0.005);
+            light += orange * tron_glow(p.x - (fi - 6.5) * 0.15 - sin(p.y * 4.0 + fi + t * 0.25) * (0.2 + signal.y * 0.25), 0.003) * 0.35;
+        }
+    } else if (look == 14) {
+        // Spectrum Bloom: nested flowers shear and split in different directions.
+        float angle = atan(p.y, p.x);
+        for (int i = 0; i < 12; i += 1) {
+            float fi = float(i);
+            vec4 signal = tron_signal(fi * 0.075);
+            float petal = sin(angle * 6.0 + fi * 0.4 + t * 0.3 + signal.y * 2.5);
+            float shape = 0.13 + fi * 0.07 + petal * (0.045 + signal.x * 0.12) + sin(angle * 18.0 + fi) * signal.z * 0.055;
+            light += mix(vec3(0.95, 0.04, 0.5), cyan, fi / 11.0) * tron_glow(r - shape, 0.004);
+        }
+    } else {
+        // Chromatic Moire: offset luminous interference sheets shear past each other.
+        vec4 signal = tron_signal(clamp((p.y + 1.0) * 0.42, 0.0, 0.95));
+        vec2 q = rotate2(p, 0.35 + signal.y * 0.65);
+        float warp = sin(q.x * 3.0 + t * 0.25) * (0.12 + signal.x * 0.3);
+        float a = sin((q.y + warp) * 27.0 + signal.z * sin(q.x * 11.0) * 2.0);
+        float b = sin((q.x + sin(q.y * 2.3 - t * 0.2) * (0.2 + signal.y * 0.3)) * 24.0);
+        light += cyan * tron_glow(a, 0.05) * 0.65;
+        light += vec3(0.95, 0.03, 0.55) * tron_glow(b, 0.05) * 0.65;
     }
     return light * (0.9 + u_reactive.w * 0.35) + orange * light.b * highs * 0.15;
 }
 
+int tron_variant(int index, int dimension) {
+    if (dimension == 1) {
+        int i = index % 9;
+        if (i == 0) { return 4; }
+        if (i == 1) { return 5; }
+        if (i == 2) { return 7; }
+        if (i == 3) { return 10; }
+        if (i == 4) { return 11; }
+        return i + 7;
+    }
+    if (dimension == 2) {
+        int i = index % 7;
+        if (i < 4) { return i; }
+        if (i == 4) { return 6; }
+        if (i == 5) { return 8; }
+        return 9;
+    }
+    return index % 16;
+}
+
 vec3 tron_scene(int id, vec2 uv) {
     float t = u_tronTime;
-    vec2 p = uv;
-    if (id != 32) { return tron_look(p, id - 33, t); }
-    // Long dwell, then a gentle dissolve; integrated motion never jumps on hits.
+    if (id != 32) { return tron_look(uv, id - 33, t); }
+    int dimension = int(round(u_dimension));
     float chapter = t / 8.0;
-    int current = int(floor(chapter)) % 12;
+    int current = int(floor(chapter));
     float blend = smoothstep(0.8, 1.0, fract(chapter));
-    vec3 outgoing = tron_look(p, current, t);
+    vec3 outgoing = tron_look(uv, tron_variant(current, dimension), t);
     if (blend <= 0.0) { return outgoing; }
-    return mix(outgoing, tron_look(p, (current + 1) % 12, t), blend);
+    return mix(outgoing, tron_look(uv, tron_variant(current + 1, dimension), t), blend);
 }
 `;

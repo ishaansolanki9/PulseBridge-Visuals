@@ -53,6 +53,10 @@ impl MusicalFit {
             | TronDigitalCity | TronHelixDrive | TronDataRain | TronReactorIris => {
                 (0.7, [0.8, 0.6, 0.8], 0.7)
             }
+            NeonMandala | SpectrumBloom => (0.8, [0.7, 0.7, 0.8], 0.65),
+            PlasmaWeave | ChromaticMoire => (0.5, [0.4, 0.9, 0.6], 0.4),
+            OrbitFoundry | SynapseBloom => (0.72, [0.8, 0.9, 0.7], 0.65),
+            GravityBraids | PrismConveyor => (0.6, [0.75, 0.85, 0.65], 0.55),
             MagneticSwarm => (0.75, [1.0, 0.45, 0.65], 0.8), // Bass Web
             LiquidRelic => (0.58, [0.6, 1.0, 0.6], 0.4),     // Ribbon Reactor
             ImpossibleArchitecture => (0.88, [0.9, 0.3, 0.7], 0.8), // Shockwave Tunnel

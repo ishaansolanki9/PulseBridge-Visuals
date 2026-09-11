@@ -4,7 +4,7 @@ import re
 
 root = Path(__file__).resolve().parents[1]
 source = (root / 'src-tauri/shaders/tron.wgsl').read_text()
-source = source.replace('params.reactive', 'u_reactive').replace('params.spatial.x', 'u_tronTime')
+source = source.replace('params.reactive', 'u_reactive').replace('params.spatial.x', 'u_tronTime').replace('params.chromatic.w', 'u_dimension')
 for wgsl, glsl in [('vec4<f32>', 'vec4'), ('vec2<f32>', 'vec2'), ('vec3<f32>', 'vec3'), ('f32', 'float'), ('u32', 'int')]:
     source = source.replace(wgsl, glsl)
 source = re.sub(r'fn (\w+)\((.*?)\) -> (\w+) \{',

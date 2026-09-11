@@ -14,6 +14,7 @@ out vec4 fragColor;
 uniform vec2 u_resolution;
 uniform float u_time;
 uniform float u_tronTime;
+uniform float u_dimension;
 uniform vec4 u_music;
 uniform vec4 u_pulse;
 uniform vec4 u_visual;

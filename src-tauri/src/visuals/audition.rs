@@ -730,7 +730,7 @@ fn native_tron_audition() {
     };
     let mut images = Vec::new();
     let mut failures = Vec::new();
-    for id in 33..45 {
+    for id in 33..53 {
         let mut uniforms = fixture(
             id,
             4.0,
@@ -816,14 +816,16 @@ fn native_tron_audition() {
         );
         uniforms.style_b[3] = 0.0;
         stage.draw(uniforms, &target, Some(&file));
-        // Cycling mode must visit the exact held looks.
-        uniforms.style_a = [32.0, 32.0, 1.0, 0.0];
-        uniforms.spatial[0] = (id - 33) as f32 * 8.0 + 1.0;
-        let cycle_file = output.join("cycle.ppm");
-        stage.draw(uniforms, &target, Some(&cycle_file));
-        uniforms.style_a = [id as f32, id as f32, 1.0, 0.0];
-        stage.draw(uniforms, &target, Some(&file));
-        assert_eq!(pixels(&cycle_file), pixels(&file));
+        if id <= 48 {
+            // Cycling mode must visit the exact held looks.
+            uniforms.style_a = [32.0, 32.0, 1.0, 0.0];
+            uniforms.spatial[0] = (id - 33) as f32 * 8.0 + 1.0;
+            let cycle_file = output.join("cycle.ppm");
+            stage.draw(uniforms, &target, Some(&cycle_file));
+            uniforms.style_a = [id as f32, id as f32, 1.0, 0.0];
+            stage.draw(uniforms, &target, Some(&file));
+            assert_eq!(pixels(&cycle_file), pixels(&file));
+        }
     }
     assert!(failures.is_empty(), "{}", failures.join("; "));
 }
@@ -911,4 +913,95 @@ fn native_tron_motion_audition() {
     }
     eprint!("{report}");
     fs::write(output.join("timing.txt"), report).unwrap();
+}
+
+#[test]
+#[ignore = "requires a native GPU; verifies dimension-filtered Tron cycling including wraparound"]
+fn native_dimension_cycle_audition() {
+    let output = std::path::PathBuf::from("target/dimension-audition");
+    fs::create_dir_all(&output).unwrap();
+    let mut stage = pollster::block_on(Stage::new());
+    let target = stage.target(320, 180);
+    let variants: [Vec<u32>; 3] = [
+        (0..16).collect(),
+        vec![4, 5, 7, 10, 11, 12, 13, 14, 15],
+        vec![0, 1, 2, 3, 6, 8, 9],
+    ];
+    for (mode, looks) in variants.iter().enumerate() {
+        for chapter in 0..=looks.len() {
+            let mut uniforms = fixture(
+                32,
+                1.0,
+                0.5,
+                (320, 180),
+                SmoothedVisualState::default(),
+                0.0,
+                chapter as f32 * 8.0 + 1.0,
+            );
+            uniforms.chromatic[3] = mode as f32;
+            let cycle = output.join("cycle.ppm");
+            let held = output.join("held.ppm");
+            stage.draw(uniforms, &target, Some(&cycle));
+            let family = (33 + looks[chapter % looks.len()]) as f32;
+            uniforms.style_a = [family, family, 1.0, 0.0];
+            stage.draw(uniforms, &target, Some(&held));
+            assert_eq!(
+                fs::read(&cycle).unwrap(),
+                fs::read(&held).unwrap(),
+                "mode {mode} chapter {chapter}"
+            );
+        }
+    }
+}
+
+#[test]
+#[ignore = "requires a native GPU; captures the expanded 2D/3D library with synthetic music"]
+fn native_expanded_motion_audition() {
+    use crate::visuals::reaction_history::ReactionHistory;
+    let output = std::path::PathBuf::from("target/expanded-motion");
+    fs::create_dir_all(&output).unwrap();
+    let mut stage = pollster::block_on(Stage::new());
+    let target = stage.target(384, 216);
+    let mut report = String::from("Synthetic build phrase; native GPU, 1280x720 warmed submission-to-completion times (no readback):\n");
+    for id in 45..53 {
+        let mut history = ReactionHistory::default();
+        let mut smoothed = SmoothedVisualState::default();
+        let mut clock = 2.5;
+        for index in 0..60 {
+            let dt = 1.0 / 24.0;
+            let t = 5.0 + index as f32 * dt;
+            smoothed.update(synthetic_frame(t), dt);
+            history.update(
+                [
+                    smoothed.bass_hit,
+                    smoothed.mid_motion,
+                    smoothed.high_hit,
+                    smoothed.energy_rise,
+                ],
+                dt,
+            );
+            clock += dt * (0.25 + smoothed.drive * 0.65);
+            let mut uniforms = fixture(id, t, 0.5, (384, 216), smoothed, 0.0, clock);
+            uniforms.visual[3] = 0.65;
+            uniforms.signal_history = history.snapshot();
+            uniforms.spatial[3] = history.fraction_seconds();
+            stage.draw(
+                uniforms,
+                &target,
+                Some(&output.join(format!("scene-{id}-{index:03}.ppm"))),
+            );
+        }
+        let hd = stage.target(1280, 720);
+        let mut uniforms = fixture(id, 7.0, 0.5, (1280, 720), smoothed, 0.0, clock);
+        uniforms.signal_history = history.snapshot();
+        stage.draw(uniforms, &hd, None);
+        let mut times: Vec<_> = (0..12).map(|_| stage.draw(uniforms, &hd, None)).collect();
+        times.sort_by(f64::total_cmp);
+        report.push_str(&format!(
+            "scene {id}: median {:.2}ms, max {:.2}ms\n",
+            times[6], times[11]
+        ));
+    }
+    eprint!("{report}");
+    fs::write(output.join("timings.txt"), report).unwrap();
 }

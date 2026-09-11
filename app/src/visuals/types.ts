@@ -1,6 +1,6 @@
 export type VisualStyle = "auto" | "fluid" | "waves" | "pulse" | "tunnel" | "burst";
 export const tronScenes = [
-  { id: "tron", label: "Tron · all 12 visuals", family: 32 },
+  { id: "tron", label: "Tron · neon collection", family: 32 },
   { id: "tronGridHighway", label: "Grid Highway", family: 33 },
   { id: "tronLightTrails", label: "Light Trails", family: 34 },
   { id: "tronLaserGates", label: "Laser Gates", family: 35 },
@@ -13,9 +13,32 @@ export const tronScenes = [
   { id: "tronHelixDrive", label: "Helix Drive", family: 42 },
   { id: "tronDataRain", label: "Data Rain", family: 43 },
   { id: "tronReactorIris", label: "Reactor Iris", family: 44 },
+  { id: "neonMandala", label: "Neon Mandala", family: 45 },
+  { id: "plasmaWeave", label: "Plasma Weave", family: 46 },
+  { id: "spectrumBloom", label: "Spectrum Bloom", family: 47 },
+  { id: "chromaticMoire", label: "Chromatic Moiré", family: 48 },
 ] as const;
 
-export type SceneSelection = (typeof tronScenes)[number]["id"] | "auto" | "magneticSwarm" | "liquidRelic" | "impossibleArchitecture" | "auroraVeil" | "kineticSculpture" | "topographicOcean";
+export const spatialScenes = [
+  { id: "magneticSwarm", label: "Bass Web · traveling shockwaves", family: 26 },
+  { id: "liquidRelic", label: "Ribbon Reactor · bending & braiding", family: 27 },
+  { id: "impossibleArchitecture", label: "Shockwave Tunnel · folding light", family: 28 },
+  { id: "auroraVeil", label: "Aurora Strings · plucked fibers", family: 29 },
+  { id: "kineticSculpture", label: "Prism Surge · twisting fractures", family: 30 },
+  { id: "topographicOcean", label: "Faultline · rolling wire terrain", family: 31 },
+  { id: "orbitFoundry", label: "Orbit Foundry", family: 49 },
+  { id: "synapseBloom", label: "Synapse Bloom", family: 50 },
+  { id: "gravityBraids", label: "Gravity Braids", family: 51 },
+  { id: "prismConveyor", label: "Prism Conveyor", family: 52 },
+] as const;
+export type VisualDimension = "combined" | "twoD" | "threeD";
+export function sceneMatchesDimension(family: number, dimension: VisualDimension): boolean {
+  if (dimension === "combined" || family === 32) return true;
+  const spatial = (family >= 26 && family <= 36) || family === 39 || family === 41 || family === 42 || (family >= 49 && family <= 52);
+  return spatial === (dimension === "threeD");
+}
+
+export type SceneSelection = (typeof tronScenes)[number]["id"] | (typeof spatialScenes)[number]["id"] | "auto";
 export type IntensityProfile = "chill" | "balanced" | "wild";
 export type FlashProfile = "off" | "moderate" | "high";
 export type PaletteName =
@@ -51,6 +74,7 @@ export interface VisualSettings {
   pcmBufferSeconds: number;
   style: VisualStyle;
   scene: SceneSelection;
+  dimension: VisualDimension;
   intensity: IntensityProfile;
   palette: PaletteName;
   flash: FlashProfile;
@@ -203,6 +227,7 @@ export const defaultSettings: VisualSettings = {
   pcmBufferSeconds: 10,
   style: "auto",
   scene: "auto",
+  dimension: "combined",
   intensity: "balanced",
   palette: "auto",
   flash: "off",

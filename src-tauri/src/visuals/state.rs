@@ -29,6 +29,27 @@ fn sanitize_audio_source_id(source_id: String, windows: bool) -> String {
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
+pub enum VisualDimension {
+    #[default]
+    Combined,
+    TwoD,
+    ThreeD,
+}
+impl VisualDimension {
+    pub fn allows(self, spatial: bool) -> bool {
+        self == Self::Combined || (self == Self::ThreeD) == spatial
+    }
+    pub fn id(self) -> f32 {
+        match self {
+            Self::Combined => 0.0,
+            Self::TwoD => 1.0,
+            Self::ThreeD => 2.0,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum SceneSelection {
     #[default]
     Auto,
@@ -51,6 +72,14 @@ pub enum SceneSelection {
     TronHelixDrive,
     TronDataRain,
     TronReactorIris,
+    NeonMandala,
+    PlasmaWeave,
+    SpectrumBloom,
+    ChromaticMoire,
+    OrbitFoundry,
+    SynapseBloom,
+    GravityBraids,
+    PrismConveyor,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -107,6 +136,7 @@ pub struct VisualSettings {
     pub pcm_buffer_seconds: u8,
     pub style: VisualStyle,
     pub scene: SceneSelection,
+    pub dimension: VisualDimension,
     pub intensity: IntensityProfile,
     pub palette: PaletteName,
     pub flash: FlashProfile,
@@ -126,6 +156,7 @@ impl Default for VisualSettings {
             pcm_buffer_seconds: 10,
             style: VisualStyle::Auto,
             scene: SceneSelection::Auto,
+            dimension: VisualDimension::Combined,
             intensity: IntensityProfile::Balanced,
             palette: PaletteName::Auto,
             flash: FlashProfile::Off,
@@ -142,6 +173,11 @@ impl Default for VisualSettings {
 impl VisualSettings {
     pub fn sanitized(mut self) -> Self {
         self.style = VisualStyle::Auto;
+        if super::director::selection_family(self.scene).is_some_and(|family| {
+            self.scene != SceneSelection::Tron && !self.dimension.allows(family.is_spatial())
+        }) {
+            self.scene = SceneSelection::Auto;
+        }
         self.pcm_buffer_seconds = self.pcm_buffer_seconds.clamp(5, 30);
         self.music_reactivity = self.music_reactivity.clamp(0.0, 1.5);
         self.motion = self.motion.clamp(0.25, 1.75);
