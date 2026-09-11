@@ -213,7 +213,7 @@ export function ControlApp() {
               {tronScenes.map((scene) => <option key={scene.id} value={scene.id}>{scene.label}</option>)}
             </optgroup>
           </select>
-          <small>Tron cycles through 12 neon worlds in signature cyan and orange. Pick a named look to hold it. Bass drives pulses, mids bend geometry, and highs light up signals. Tron appears in the ambient preview; other scenes preview the original style.</small>
+          <small>Tron cycles through 12 neon worlds in signature cyan and orange. Pick a named look to hold it. Bass sends traveling shockwaves, mids steer and fold structures, and percussion launches signals and fragments. Tron appears in the ambient preview; other scenes preview the original style.</small>
         </label>
         <div className="setup-grid">
           <label className="field">

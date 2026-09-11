@@ -729,6 +729,7 @@ fn native_tron_audition() {
         data[data.len() - 640 * 360 * 3..].to_vec()
     };
     let mut images = Vec::new();
+    let mut failures = Vec::new();
     for id in 33..45 {
         let mut uniforms = fixture(
             id,
@@ -754,18 +755,58 @@ fn native_tron_audition() {
         stage.draw(uniforms, &target, Some(&file));
         assert_eq!(baseline, pixels(&file), "Tron must ignore white flashes");
         uniforms.pulse[3] = 0.0;
+        // Compare normalized images with fixed time, camera, and exposure.
+        // A brightness-only change cannot pass; old hits must still move objects
+        // even after all live envelopes have returned to zero.
+        let normalize = |rgb: &[u8]| {
+            let values: Vec<f32> = rgb
+                .chunks_exact(3)
+                .map(|c| 0.2126 * c[0] as f32 + 0.7152 * c[1] as f32 + 0.0722 * c[2] as f32)
+                .collect();
+            let total: f32 = values.iter().sum();
+            values
+                .into_iter()
+                .map(|v| v / total.max(0.001))
+                .collect::<Vec<_>>()
+        };
+        let distance =
+            |a: &[f32], b: &[f32]| a.iter().zip(b).map(|(a, b)| (a - b).abs()).sum::<f32>();
+        let neutral = normalize(&baseline);
         for lane in 0..3 {
-            uniforms.reactive = [0.0; 4];
-            uniforms.reactive[lane] = 0.9;
-            stage.draw(uniforms, &target, Some(&file));
-            let changed = pixels(&file);
-            let difference: usize = baseline
-                .iter()
-                .zip(&changed)
-                .map(|(a, b)| a.abs_diff(*b) as usize)
-                .sum();
-            assert!(difference > 10000, "look {id} must react to band {lane}");
+            let mut previous = Vec::new();
+            let mut strongest = 0.0f32;
+            for (phase, center) in [0.22f32, 0.65].iter().enumerate() {
+                uniforms.reactive = [0.0; 4];
+                uniforms.signal_history = [[0.0; 4]; 32];
+                for (index, sample) in uniforms.signal_history.iter_mut().enumerate() {
+                    let age = index as f32 / 30.0;
+                    sample[lane] = (-((age - center) / 0.17).powi(2)).exp() * 0.95;
+                }
+                let hit_file = output.join(format!("response-{id}-{lane}-{phase}.ppm"));
+                stage.draw(uniforms, &target, Some(&hit_file));
+                let actual = normalize(&pixels(&hit_file));
+                let deformation = distance(&neutral, &actual);
+                strongest = strongest.max(deformation);
+                eprintln!("Tron {id} band {lane} wave {phase}: spatial change {deformation:.3}");
+                if deformation <= 0.04 {
+                    failures.push(format!(
+                        "look {id} band {lane}: weak delayed response {deformation}"
+                    ));
+                }
+                if phase > 0 {
+                    if distance(&previous, &actual) <= 0.08 {
+                        failures.push(format!("look {id} band {lane}: hit must travel"));
+                    }
+                }
+                previous = actual;
+            }
+            if strongest <= 0.12 {
+                failures.push(format!(
+                    "look {id} band {lane}: weak deformation {strongest}"
+                ));
+            }
         }
+        uniforms.signal_history = [[0.0; 4]; 32];
         uniforms.reactive = [0.0; 4];
         uniforms.style_b[3] = 1.0;
         stage.draw(uniforms, &target, Some(&file));
@@ -784,4 +825,90 @@ fn native_tron_audition() {
         stage.draw(uniforms, &target, Some(&file));
         assert_eq!(pixels(&cycle_file), pixels(&file));
     }
+    assert!(failures.is_empty(), "{}", failures.join("; "));
+}
+
+#[test]
+#[ignore = "requires a native GPU; writes synthetic music-driven Tron motion clips"]
+fn native_tron_motion_audition() {
+    use crate::visuals::reaction_history::ReactionHistory;
+    let output = std::path::PathBuf::from("target/tron-motion");
+    fs::create_dir_all(&output).unwrap();
+    let mut stage = pollster::block_on(Stage::new());
+    let target = stage.target(640, 360);
+    for id in [33, 35, 37, 41, 42, 44] {
+        let mut history = ReactionHistory::default();
+        let mut smoothed = SmoothedVisualState::default();
+        let mut clock = 2.5;
+        for frame_index in 0..96 {
+            let dt = 1.0 / 24.0;
+            let t = frame_index as f32 * dt;
+            // Independent kick, snare/melodic movement, and offbeat hats. This
+            // goes through production smoothing; no testing pulse enters the app.
+            let kick = (-((t * 2.0).fract()) * 18.0).exp();
+            let snare = (-((t * 2.0 + 0.5).fract()) * 15.0).exp();
+            let hat = (-((t * 4.0 + 0.25).fract()) * 25.0).exp();
+            let frame = VisualInputFrame {
+                energy: 0.38 + kick * 0.45,
+                sub: kick * 0.95,
+                bass: 0.15 + kick * 0.8,
+                mids: 0.2 + snare * 0.7,
+                highs: 0.1 + hat * 0.8,
+                beat_pulse: kick,
+                beat_confidence: 0.95,
+                onset: kick.max(snare).max(hat),
+                impact: kick * 0.8,
+                reactivity: 1.0,
+                ..Default::default()
+            };
+            smoothed.update(frame, dt);
+            history.update(
+                [
+                    smoothed.bass_hit,
+                    smoothed.mid_motion,
+                    smoothed.high_hit,
+                    smoothed.energy_rise,
+                ],
+                dt,
+            );
+            clock += dt * (0.25 + smoothed.drive * 0.65);
+            let mut uniforms = fixture(id, t, 0.5, (640, 360), smoothed, 0.0, clock);
+            uniforms.visual[3] = 0.65;
+            uniforms.signal_history = history.snapshot();
+            uniforms.spatial[3] = history.fraction_seconds();
+            stage.draw(
+                uniforms,
+                &target,
+                Some(&output.join(format!("tron-{id}-{frame_index:03}.ppm"))),
+            );
+        }
+    }
+    // Submission-to-completion timings at HD, with no readback. This is a local
+    // workload check, not a Windows, presentation, or discrete-GPU benchmark.
+    let target_hd = stage.target(1280, 720);
+    let mut report = String::from("Native GPU completion time, 1280x720, warmed, no readback:\n");
+    for id in 33..45 {
+        let mut uniforms = fixture(
+            id,
+            3.0,
+            0.5,
+            (1280, 720),
+            SmoothedVisualState::default(),
+            0.0,
+            4.0,
+        );
+        uniforms.reactive = [0.6; 4];
+        uniforms.signal_history = [[0.6; 4]; 32];
+        stage.draw(uniforms, &target_hd, None);
+        let mut times: Vec<f64> = (0..12)
+            .map(|_| stage.draw(uniforms, &target_hd, None))
+            .collect();
+        times.sort_by(f64::total_cmp);
+        report.push_str(&format!(
+            "look {id}: median {:.2} ms, max {:.2} ms\n",
+            times[6], times[11]
+        ));
+    }
+    eprint!("{report}");
+    fs::write(output.join("timing.txt"), report).unwrap();
 }
