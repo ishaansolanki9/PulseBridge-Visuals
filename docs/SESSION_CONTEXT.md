@@ -21,7 +21,7 @@
 
 ## Verification and packaging
 
-- npm run build; npm run lint; cargo test --manifest-path src-tauri/Cargo.toml --lib.
+- Match CI before pushing: `npm run lint`; `npm run typecheck`; `npm run build`; `cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check`; `cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings`; `cargo test --manifest-path src-tauri/Cargo.toml`. Clippy must include all targets: ignored GPU audition tests are still compiled and linted.
 - GPU: cargo test --manifest-path src-tauri/Cargo.toml native_tron_audition -- --ignored --nocapture. Tests all 12 looks for independent bands with zero live envelopes at two positions in history, normalized image differences, flash immunity, blackout, cycle equivalence.
 - Motion: native_tron_motion_audition writes six four-second clips and warmed 1280x720 timings. Baseline Apple M1/Metal medians ~1–6ms; this is not live Rekordbox or Windows performance validation.
 - Generated captures: ignored src-tauri/target/tron-motion and tron-audition. Animated preview: src-tauri/target/tron-motion/tron-preview.gif.
@@ -42,7 +42,13 @@
 - Tests passed: frontend build/lint; 83 regular Rust tests; native extended held-scene response audition (33–52); dimension-cycle equivalence through wraparound in all modes; stronger original 3D isolated-band responses; expanded synthetic motion captures. Browser verified 2D/3D/Combined filtering, incompatible-hold reset, 3D preview, persisted mode, and no console errors.
 - Expanded native captures: `src-tauri/target/expanded-motion`. Eight 2.5-second sequences and `expanded-preview.gif`; ignored artifacts, never commit them. On this Apple M1, warmed native 720p medians were ~1.1ms for the four new line worlds and ~1.2–3.3ms for the four planar designs. These timings exclude readback and presentation; live Rekordbox and Windows are not verified.
 - Extra ignored test names: `native_dimension_cycle_audition`, `native_expanded_motion_audition`. `native_tron_audition` now covers 20 held looks, so its historical name is broader than its name suggests.
-- Current source is the commit containing this document. Source/build and installation are verified. This document is committed with the completed expansion; future sessions can find the exact revision in git history.
+- Dimension expansion source and installed Mac build: `3ec1c8b`. Subsequent CI maintenance is recorded below; future sessions can find the latest source revision in git history.
+
+## Native CI failure (September 11, 2026)
+
+- [Run 34574916152](https://github.com/ishaansolanki9/PulseBridge-Visuals/actions/runs/34574916152) failed on both macOS and Windows at the strict all-target Clippy step. `clippy::collapsible_if` flagged nested conditions in the ignored Tron GPU audition's traveling-hit assertion. Tests and installer packaging were skipped; Node.js action deprecation notices were unrelated warnings.
+- Combined the conditions with short-circuit `&&`, preserving the assertion's behavior and avoiding a comparison before a previous image exists. No runtime visual or application behavior changed. Keep the workflow's strict lint settings intact.
+- Local verification after the fix: formatting and strict all-target Clippy passed; full Cargo tests passed (83 passed, 8 GPU auditions intentionally ignored); frontend lint, typecheck, and production build passed.
 
 ## Installation status
 

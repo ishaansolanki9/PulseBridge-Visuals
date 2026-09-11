@@ -793,10 +793,8 @@ fn native_tron_audition() {
                         "look {id} band {lane}: weak delayed response {deformation}"
                     ));
                 }
-                if phase > 0 {
-                    if distance(&previous, &actual) <= 0.08 {
-                        failures.push(format!("look {id} band {lane}: hit must travel"));
-                    }
+                if phase > 0 && distance(&previous, &actual) <= 0.08 {
+                    failures.push(format!("look {id} band {lane}: hit must travel"));
                 }
                 previous = actual;
             }
