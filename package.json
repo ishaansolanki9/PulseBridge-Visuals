@@ -10,9 +10,13 @@
     "build": "npm run build --workspace @pulsebridge/app",
     "typecheck": "npm run typecheck --workspace @pulsebridge/app",
     "lint": "npm run lint --workspace @pulsebridge/app",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "test:preview": "node --test --test-concurrency=1 scripts/preview.test.mjs"
   },
   "engines": {
     "node": ">=22.12"
+  },
+  "devDependencies": {
+    "playwright": "1.62.1"
   }
 }

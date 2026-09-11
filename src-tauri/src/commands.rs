@@ -47,8 +47,12 @@ pub fn get_displays(app: AppHandle) -> Result<Vec<DisplayInfo>, String> {
 }
 
 #[tauri::command]
-pub fn get_audio_sources() -> Result<Vec<AudioSourceInfo>, String> {
-    enumerate_audio_sources()
+pub async fn get_audio_sources() -> Result<Vec<AudioSourceInfo>, String> {
+    // Endpoint/session enumeration can wait on third-party audio drivers. Keep
+    // it off Tauri's window thread so the controller can still paint and close.
+    tauri::async_runtime::spawn_blocking(enumerate_audio_sources)
+        .await
+        .map_err(|error| format!("Audio source discovery failed: {error}"))?
 }
 
 #[tauri::command]

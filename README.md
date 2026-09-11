@@ -72,6 +72,18 @@ The browser build is an ambient controller preview. To run the native applicatio
 npm run tauri -- dev
 ```
 
+On Windows, use `npm.cmd run tauri -- dev` and use the **PulseBridge desktop window** that opens. The `http://127.0.0.1:1420` link is the browser appearance preview; it does not connect to the native audio/output runtime.
+
+If an older checkout froze immediately on opening (including a browser “not responding” warning), close that app and its preview tabs, then update from the project folder:
+
+```powershell
+git pull
+npm.cmd ci
+npm.cmd run tauri -- dev
+```
+
+The controller now loads saved settings before compiling a preview, compiles only the selected look, and polls compilation without blocking the interface. Unsupported graphics, link failures, timeouts, and context loss show **Preview unavailable · controls are ready**. Preview work is capped at 640×360 and 15 FPS, stops when hidden or offscreen, and pauses during live output and connection tests. Audio-device discovery runs outside the window thread, with overlapping refreshes sharing one request. These controller limits do not change native performance-output resolution or scene detail.
+
 Windows defaults to **Rekordbox audio**, which uses Windows Audio Session APIs to identify the matching render endpoint before opening ordinary endpoint loopback. It reconnects when Rekordbox starts, stops, or moves endpoints. **Automatic Windows output** remains an explicit all-app fallback and individual outputs remain manually selectable. Windows process-specific loopback is disabled because repeated hardware tests ended the entire process inside native activation, even after the documented callback and lifetime requirements were applied. Persisted `process:auto` selections migrate automatically to `rekordbox:auto`. macOS continues to offer Rekordbox-only and all-system-output Core Audio taps on 14.2+, plus detected microphone/line-in inputs. macOS permissions are requested only when the selected route starts; if denied, enable PulseBridge under **System Settings → Privacy & Security → Screen & System Audio Recording** or **Microphone**.
 
 Audio capture supplies the mixed PCM signal used to derive loudness, bass, mids, highs, onsets, BPM, beat/bar timing, phrase changes, and a session-local structure signature. It does not claim access to Rekordbox's rendered waveform graphics, individual deck/stem layers, track identity, or private phrase metadata.
@@ -96,6 +108,15 @@ cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
 cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
 cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+Browser startup and failure recovery regressions (also run by frontend CI):
+
+```bash
+npx playwright install chromium
+npm run test:preview
+```
+
+Set `PULSEBRIDGE_TEST_BROWSER=chrome` to use an installed Chrome instead of downloading Chromium. The tests cover every selectable preview, saved-scene startup, a stalled shader compiler, missing WebGL/parallel compilation, failed linking, context loss, offscreen suspension, dimension cycling, and a native transport with stalled audio discovery. These are browser tests and simulated failure cases; verification on the affected Windows laptop is still required.
 
 Windows and macOS CI compile, lint, test, and build platform bundles. These jobs are compile/package checks, not real Rekordbox audio integration tests. Unit tests also cover diagnostic schema/recovery, cancellation, format conversion/resampling, explicit connection facts, scene normalization, modifier compatibility/envelopes/brightness caps, native-close stop routing, and WGSL validation.
 

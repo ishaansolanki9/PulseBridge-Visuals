@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { paletteColors } from "./model";
+import { previewSize, startPreviewLoop } from "./previewBudget";
 import type { VisualSettings } from "./types";
 
 const TAU = Math.PI * 2;
@@ -59,15 +60,11 @@ export function SpatialPreview({ settings, family, className, paused }: { settin
     if (!element || paused) return;
     const ctx = element.getContext("2d");
     if (!ctx) return;
-    let frame = 0, last = 0, clock = 0;
-    function render(now: number) {
-      if (!element || !ctx) return;
-      frame = requestAnimationFrame(render);
-      if (now - last < 50) return;
+    let clock = 0;
+    return startPreviewLoop(element, (_now, delta) => {
       const { settings: active, family: id } = current.current;
-      clock += Math.min((now - last) / 1000, 0.1) * 0.33 * active.motion;
-      last = now;
-      const width = Math.max(1, Math.round(element.clientWidth)), height = Math.max(1, Math.round(element.clientHeight));
+      clock += delta * 0.33 * active.motion;
+      const [width, height] = previewSize(element.clientWidth, element.clientHeight);
       if (element.width !== width || element.height !== height) { element.width = width; element.height = height; }
       ctx.fillStyle = "#02050c"; ctx.fillRect(0, 0, width, height);
       const colors = paletteColors(active.palette).slice(1);
@@ -86,9 +83,7 @@ export function SpatialPreview({ settings, family, className, paused }: { settin
         ctx.stroke();
       }
       ctx.shadowBlur = 0; ctx.globalAlpha = 1;
-    }
-    frame = requestAnimationFrame(render);
-    return () => cancelAnimationFrame(frame);
+    });
   }, [paused]);
   return <canvas ref={canvas} className={`performance-canvas ${className}`} aria-label="Ambient 3D scene preview" />;
 }

@@ -45,6 +45,7 @@ const palettes: Array<{ id: PaletteName; label: string }> = [
 
 export function ControlApp() {
   const [settings, setSettings] = useState<VisualSettings>(defaultSettings);
+  const [settingsLoaded, setSettingsLoaded] = useState(false);
   const [runtime, setRuntime] = useState<RuntimeSnapshot | null>(null);
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
   const [sources, setSources] = useState<AudioSourceInfo[]>([]);
@@ -56,18 +57,22 @@ export function ControlApp() {
 
   useEffect(() => {
     let active = true;
+    // Audio discovery may wait on a driver; show settings and diagnostics while
+    // it finishes instead of holding the entire initial state behind it.
+    void controlTransport.getAudioSources()
+      .then((nextSources) => { if (active) setSources(nextSources); })
+      .catch((reason: unknown) => active && setError(messageFrom(reason)));
     void Promise.all([
       controlTransport.getDisplays(),
-      controlTransport.getAudioSources(),
       controlTransport.getState(),
       controlTransport.getPreviousRunReport(),
     ])
-      .then(([nextDisplays, nextSources, nextRuntime, previousReport]) => {
+      .then(([nextDisplays, nextRuntime, previousReport]) => {
         if (!active) return;
         setDisplays(nextDisplays);
-        setSources(nextSources);
         setRuntime(nextRuntime);
         setSettings(nextRuntime.settings);
+        setSettingsLoaded(true);
         if (previousReport) setDiagnosticReport(previousReport);
       })
       .catch((reason: unknown) => active && setError(messageFrom(reason)));
@@ -190,7 +195,7 @@ export function ControlApp() {
       </header>
 
       <section className="preview-card" aria-label="Ambient visual preview">
-        <PerformanceCanvas settings={settings} className="control-preview" paused={Boolean(runtime?.running)} />
+        <PerformanceCanvas settings={settings} className="control-preview" paused={!settingsLoaded || Boolean(runtime?.running) || diagnosticBusy} />
         <div className="preview-topline">
           <span>Ambient preview</span>
           <span>No audio injected</span>

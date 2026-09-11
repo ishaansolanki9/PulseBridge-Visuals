@@ -115,14 +115,22 @@ class BrowserControlTransport implements ControlTransport {
 }
 
 class TauriControlTransport implements ControlTransport {
+  private audioSourcesRequest: Promise<AudioSourceInfo[]> | null = null;
+
   async getDisplays() {
     const { invoke } = await import("@tauri-apps/api/core");
     return invoke<DisplayInfo[]>("get_displays");
   }
 
-  async getAudioSources() {
-    const { invoke } = await import("@tauri-apps/api/core");
-    return invoke<AudioSourceInfo[]>("get_audio_sources");
+  getAudioSources() {
+    // Polling and manual refresh share one request if a driver is slow. Do not
+    // accumulate native discovery workers behind an unresponsive endpoint.
+    if (!this.audioSourcesRequest) {
+      this.audioSourcesRequest = import("@tauri-apps/api/core")
+        .then(({ invoke }) => invoke<AudioSourceInfo[]>("get_audio_sources"))
+        .finally(() => { this.audioSourcesRequest = null; });
+    }
+    return this.audioSourcesRequest;
   }
 
   async getState() {
