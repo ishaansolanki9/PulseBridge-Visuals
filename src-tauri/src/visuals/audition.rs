@@ -6,6 +6,7 @@ use crate::visuals::director::SpectacleEnvelope;
 use std::{fs, io::Write, path::Path};
 
 struct Stage {
+    startup_duration: Duration,
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
@@ -21,14 +22,17 @@ fn native_pipeline_startup_audition() {
     let started = Instant::now();
     let mut stage = pollster::block_on(Stage::new());
     // Exercise the production presentation shader as well as scene pipelines.
+    let blitter_started = Instant::now();
     let _blitter = TextureBlitterBuilder::new(&stage.device, wgpu::TextureFormat::Bgra8UnormSrgb)
         .sample_type(wgpu::FilterMode::Linear)
         .build();
-    let elapsed = started.elapsed();
-    eprintln!("Native pipeline startup: {:.3}s", elapsed.as_secs_f64());
-    assert!(
-        elapsed < Duration::from_secs(12),
-        "native pipelines exceeded the live startup budget: {elapsed:?}"
+    // Live output prepares the instance/surface before starting its 12-second
+    // worker deadline. Do not charge cold DX12 instance loading to that budget.
+    let elapsed = stage.startup_duration + blitter_started.elapsed();
+    eprintln!(
+        "Native worker startup: {:.3}s; including instance loading: {:.3}s",
+        elapsed.as_secs_f64(),
+        started.elapsed().as_secs_f64()
     );
 
     let output = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/pipeline-startup");
@@ -62,16 +66,30 @@ fn native_pipeline_startup_audition() {
             "scene {from}/{to} rendered black"
         );
     }
+    assert!(
+        elapsed < Duration::from_secs(12),
+        "native pipelines exceeded the live startup budget: {elapsed:?}"
+    );
 }
 
 impl Stage {
     async fn new() -> Self {
+        let instance_started = Instant::now();
         let instance = gpu::create_instance();
+        eprintln!(
+            "GPU instance ready: {:.3}s",
+            instance_started.elapsed().as_secs_f64()
+        );
+        let worker_started = Instant::now();
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions::default())
             .await
             .expect("native GPU required");
         eprintln!("SYNTHETIC AUDITION — {:?}", adapter.get_info());
+        eprintln!(
+            "GPU adapter ready: {:.3}s",
+            worker_started.elapsed().as_secs_f64()
+        );
         let (device, queue) = adapter
             .request_device(&wgpu::DeviceDescriptor::default())
             .await
@@ -119,6 +137,7 @@ impl Stage {
             create_line_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT);
         let compositor = compositor::SceneCompositor::new(&device, &layout);
         Self {
+            startup_duration: worker_started.elapsed(),
             compositor,
             line_pipeline,
             device,

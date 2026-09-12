@@ -41,7 +41,14 @@ jobs:
       - run: cargo test --manifest-path src-tauri/Cargo.toml
       - name: Exercise native DX12 pipeline startup
         timeout-minutes: 2
-        run: cargo test --manifest-path src-tauri/Cargo.toml native_pipeline_startup_audition -- --ignored --nocapture
+        shell: pwsh
+        run: |
+          # The preceding cargo test step already built this exact executable.
+          # Run it directly to avoid relinking Tauri and static DXC a second time.
+          $tests = @(Get-ChildItem src-tauri/target/debug/deps/pulsebridge_lib-*.exe)
+          if ($tests.Count -ne 1) { throw "Expected one freshly built native test executable" }
+          & ($tests[0].FullName) native_pipeline_startup_audition --ignored --nocapture
+          exit $LASTEXITCODE
       - run: npm run tauri -- build --bundles nsis
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4
