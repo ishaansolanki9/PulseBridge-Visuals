@@ -48,6 +48,8 @@ Cross-target type checking from macOS may require `llvm-rc` for Tauri's Windows 
 
 Windows MSVC builds include the statically linked DXC shader compiler through wgpu's `static-dxc` feature. The locked compiler dependency downloads and verifies its native build archive during the first Windows build; installed users do not need a separate `dxcompiler.dll`. `visuals/gpu.rs` supplies the shared instance policy for live output, diagnostic probes, and auditions. Keep all three paths aligned.
 
+Windows shaders remain optimized in development builds: the wgpu `DEBUG` flag adds DXC `-Od`, which made WARP's first draw exceed 30 seconds for this library. Remove only shader-debug generation; retain the separate API validation flag and WGSL validation. `fs_main` consumes one isolated scene; `SceneCompositor` renders both transition sides independently. Do not reintroduce a duplicate secondary-scene library dispatch into the fragment shader. The Tron collection shares its first look call with held looks and uses a second only during collection blends.
+
 Run `cargo test --manifest-path src-tauri/Cargo.toml native_pipeline_startup_audition -- --ignored --nocapture` to compile all production pipeline types and read back representative scenes. The pipeline setup must finish within the live 12-second startup budget. Windows CI runs this in a separate step with a two-minute deadline so a compiler hang cannot block packaging indefinitely. WGSL validation alone does not exercise DX12 shader compilation or the driver. The test renders offscreen and opens no audio device; real Intel Arc/fullscreen/Rekordbox validation is still separate.
 
 ## Release

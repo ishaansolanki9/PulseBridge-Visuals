@@ -14,6 +14,10 @@ pub(super) fn instance_descriptor() -> wgpu::InstanceDescriptor {
         target_env = "msvc"
     )) {
         descriptor.backend_options.dx12.shader_compiler = wgpu::Dx12Compiler::StaticDxc;
+        // wgpu maps DEBUG to DXC -Od. That hands a huge unoptimized shader to
+        // the driver even in `tauri dev`; WARP can stall on the very first draw.
+        // Keep API/WGSL validation enabled, but compile shaders as in release.
+        descriptor.flags.remove(wgpu::InstanceFlags::DEBUG);
     }
     descriptor
 }
@@ -27,6 +31,7 @@ pub(super) fn create_instance() -> wgpu::Instance {
         "Configured native shader compiler",
         serde_json::json!({
             "dx12Compiler": format!("{:?}", descriptor.backend_options.dx12.shader_compiler),
+            "instanceFlags": format!("{:?}", descriptor.flags),
         }),
     );
     wgpu::Instance::new(descriptor)
@@ -107,6 +112,17 @@ mod tests {
                 instance_descriptor().backend_options.dx12.shader_compiler,
                 wgpu::Dx12Compiler::StaticDxc
             ));
+            assert!(!instance_descriptor()
+                .flags
+                .contains(wgpu::InstanceFlags::DEBUG));
+            assert_eq!(
+                instance_descriptor()
+                    .flags
+                    .contains(wgpu::InstanceFlags::VALIDATION),
+                wgpu::InstanceDescriptor::new_without_display_handle()
+                    .flags
+                    .contains(wgpu::InstanceFlags::VALIDATION),
+            );
         }
     }
 }

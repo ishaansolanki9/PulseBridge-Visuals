@@ -407,9 +407,10 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
 
     let spatial_uv = uv;
     let primary_id = u32(round(params.style_a.x));
-    let secondary_id = u32(round(params.style_a.y));
-    let legacy_weight = select(0.0, params.style_a.z, primary_id < 26u)
-        + select(0.0, params.style_a.w, secondary_id < 26u);
+    // The native compositor renders each scene independently before dissolving
+    // the completed images. Re-dispatching a secondary scene here duplicated the
+    // entire library in DX12 shader compilation without contributing any pixels.
+    let legacy_weight = select(0.0, params.style_a.z, primary_id < 26u);
     if legacy_weight > 0.001 {
         let source_radius = max(length(uv), 0.001);
         let radial_direction = uv / source_radius;
@@ -453,9 +454,6 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     var color = vec3<f32>(0.0);
     if primary_id < 26u {
         color += visual_family(primary_id, uv, time) * params.style_a.z;
-    }
-    if secondary_id < 26u && params.style_a.w > 0.001 {
-        color += visual_family(secondary_id, uv, time) * params.style_a.w;
     }
     color /= max(legacy_weight, 0.001);
 
@@ -550,8 +548,8 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
             * 0.44;
 
     }
-    // Compose after the legacy treatment. Incoming 3D never snaps the outgoing
-    // scene's UVs or overlays off, and legacy effects never warp the 3D camera.
+    // Finish this isolated scene before the compositor blends completed images;
+    // legacy effects never warp the 3D camera.
     color *= legacy_weight;
     let spatial_vignette = 1.0 - smoothstep(0.25, 1.55, length(spatial_uv * vec2<f32>(0.7, 1.0)));
     let spatial_brightness = (0.32 + spatial_vignette * 0.78) * params.visual.w
@@ -559,14 +557,8 @@ fn fs_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     if ((primary_id >= 26u && primary_id <= 31u) || (primary_id >= 49u && primary_id <= 52u)) && params.style_a.z > 0.001 {
         color += spatial_scene(primary_id, spatial_uv) * params.style_a.z * spatial_brightness;
     }
-    if ((secondary_id >= 26u && secondary_id <= 31u) || (secondary_id >= 49u && secondary_id <= 52u)) && params.style_a.w > 0.001 {
-        color += spatial_scene(secondary_id, spatial_uv) * params.style_a.w * spatial_brightness;
-    }
     if primary_id >= 32u && primary_id <= 48u && params.style_a.z > 0.001 {
         color += tron_scene(primary_id, spatial_uv) * params.style_a.z * params.visual.w * 1.6;
-    }
-    if secondary_id >= 32u && secondary_id <= 48u && params.style_a.w > 0.001 {
-        color += tron_scene(secondary_id, spatial_uv) * params.style_a.w * params.visual.w * 1.6;
     }
     color = mix(color, vec3<f32>(1.0), params.pulse.w * legacy_weight * (0.54 + drive * 0.16));
     let luminance = dot(color, vec3<f32>(0.2126, 0.7152, 0.0722));

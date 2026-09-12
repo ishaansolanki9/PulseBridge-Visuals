@@ -10,6 +10,7 @@ const port = 1427;
 const url = `http://127.0.0.1:${port}`;
 let server;
 let browser;
+let simulateCompletion = false;
 
 before(async () => {
   server = spawn(process.execPath, ["../node_modules/vite/bin/vite.js", "--host", "127.0.0.1", "--port", String(port)], {
@@ -28,6 +29,16 @@ before(async () => {
     headless: true,
     args: ["--enable-unsafe-swiftshader"],
   });
+  const capabilities = await browser.newPage();
+  simulateCompletion = await capabilities.evaluate(() => {
+    const gl = document.createElement("canvas").getContext("webgl2");
+    if (!gl) throw new Error("Preview tests require a working WebGL2 renderer");
+    return !gl.getExtension("KHR_parallel_shader_compile");
+  });
+  await capabilities.close();
+  if (simulateCompletion) {
+    console.info("Software WebGL lacks KHR_parallel_shader_compile: simulating completion polls for protocol tests; shaders/draws remain real. The no-parallel test exercises the production fallback.");
+  }
 });
 
 after(async () => {
@@ -44,7 +55,7 @@ async function openPreview(mode = "normal", settings = {}) {
   const page = await context.newPage();
   const errors = [];
   page.on("pageerror", (error) => errors.push(error.message));
-  await page.addInitScript(({ mode, settings }) => {
+  await page.addInitScript(({ mode, settings, simulateCompletion }) => {
     localStorage.setItem("pulsebridge-visual-settings", JSON.stringify(settings));
     const probe = window.previewProbe = { shaders: [], draws: 0, contexts: 0, blockingQueries: 0, programs: 0, maxPrograms: 0, stall: mode === "stall", audioRequests: 0, settingsWrites: 0 };
     if (mode === "slow-audio") {
@@ -83,12 +94,23 @@ async function openPreview(mode = "normal", settings = {}) {
     const originalExtension = prototype.getExtension;
     prototype.getExtension = function (name) {
       if (name === "KHR_parallel_shader_compile" && mode === "no-parallel") return null;
+      // SwiftShader does not expose this extension. Model its asynchronous
+      // polling protocol only in tests; production still refuses sync fallback.
+      if (name === "KHR_parallel_shader_compile" && simulateCompletion) return { COMPLETION_STATUS_KHR: 0x91B1 };
       return originalExtension.call(this, name);
     };
     const completed = new WeakSet();
+    const completionPolls = new WeakMap();
     const originalStatus = prototype.getProgramParameter;
     prototype.getProgramParameter = function (program, parameter) {
       if (parameter === 0x91B1 && probe.stall) return false;
+      if (parameter === 0x91B1 && simulateCompletion) {
+        const polls = (completionPolls.get(program) ?? 0) + 1;
+        completionPolls.set(program, polls);
+        if (polls < 3) return false;
+        completed.add(program);
+        return true;
+      }
       if (parameter === this.LINK_STATUS && !completed.has(program)) probe.blockingQueries++;
       const value = originalStatus.call(this, program, parameter);
       if (parameter === 0x91B1 && value) completed.add(program);
@@ -114,7 +136,7 @@ async function openPreview(mode = "normal", settings = {}) {
     };
     const originalDelete = prototype.deleteProgram;
     prototype.deleteProgram = function (program) { probe.programs--; return originalDelete.call(this, program); };
-  }, { mode, settings });
+  }, { mode, settings, simulateCompletion });
   await page.goto(url);
   return { page, errors, close: () => context.close() };
 }

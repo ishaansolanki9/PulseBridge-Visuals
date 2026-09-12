@@ -250,12 +250,13 @@ fn tron_variant(index: u32, dimension: u32) -> u32 {
 
 fn tron_scene(id: u32, uv: vec2<f32>) -> vec3<f32> {
     let t: f32 = params.spatial.x;
-    if id != 32u { return tron_look(uv, id - 33u, t); }
     let dimension: u32 = u32(round(params.chromatic.w));
     let chapter: f32 = t / 8.0;
     let current: u32 = u32(floor(chapter));
     let blend: f32 = smoothstep(0.8, 1.0, fract(chapter));
-    let outgoing: vec3<f32> = tron_look(uv, tron_variant(current, dimension), t);
-    if blend <= 0.0 { return outgoing; }
+    let cycling: bool = id == 32u;
+    let look: u32 = select(id - 33u, tron_variant(current, dimension), cycling);
+    let outgoing: vec3<f32> = tron_look(uv, look, t);
+    if !cycling || blend <= 0.0 { return outgoing; }
     return mix(outgoing, tron_look(uv, tron_variant(current + 1u, dimension), t), blend);
 }

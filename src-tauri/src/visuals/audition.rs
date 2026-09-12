@@ -52,7 +52,8 @@ fn native_pipeline_startup_audition() {
             uniforms.style_a = [from as f32, to as f32, 0.5, 0.5];
         }
         let file = output.join(format!("scene-{index}.ppm"));
-        stage.draw(uniforms, &target, Some(&file));
+        let frame_ms = stage.draw(uniforms, &target, Some(&file));
+        eprintln!("Native startup frame {from}/{to}: {frame_ms:.3}ms");
         let image = fs::read(&file).unwrap();
         let pixels = image.splitn(4, |byte| *byte == b'\n').nth(3).unwrap();
         assert_eq!(pixels.len(), 160 * 100 * 3);
