@@ -14,9 +14,58 @@ struct Stage {
     binding: wgpu::BindGroup,
     uniform: wgpu::Buffer,
 }
+
+#[test]
+#[ignore = "requires a native GPU; Windows CI runs this with a process timeout"]
+fn native_pipeline_startup_audition() {
+    let started = Instant::now();
+    let mut stage = pollster::block_on(Stage::new());
+    // Exercise the production presentation shader as well as scene pipelines.
+    let _blitter = TextureBlitterBuilder::new(&stage.device, wgpu::TextureFormat::Bgra8UnormSrgb)
+        .sample_type(wgpu::FilterMode::Linear)
+        .build();
+    let elapsed = started.elapsed();
+    eprintln!("Native pipeline startup: {:.3}s", elapsed.as_secs_f64());
+    assert!(
+        elapsed < Duration::from_secs(12),
+        "native pipelines exceeded the live startup budget: {elapsed:?}"
+    );
+
+    let output = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/pipeline-startup");
+    fs::create_dir_all(&output).unwrap();
+    let target = stage.target(160, 100);
+    // Legacy 2D, Tron cycling/held, new 2D, instanced 3D, and an image dissolve.
+    for (index, (from, to)) in [(0, 0), (32, 32), (33, 33), (45, 45), (49, 49), (33, 49)]
+        .into_iter()
+        .enumerate()
+    {
+        let mut uniforms = fixture(
+            from,
+            4.0,
+            1.0,
+            (160, 100),
+            SmoothedVisualState::default(),
+            0.0,
+            6.8,
+        );
+        if from != to {
+            uniforms.style_a = [from as f32, to as f32, 0.5, 0.5];
+        }
+        let file = output.join(format!("scene-{index}.ppm"));
+        stage.draw(uniforms, &target, Some(&file));
+        let image = fs::read(&file).unwrap();
+        let pixels = image.splitn(4, |byte| *byte == b'\n').nth(3).unwrap();
+        assert_eq!(pixels.len(), 160 * 100 * 3);
+        assert!(
+            pixels.iter().any(|value| *value > 8),
+            "scene {from}/{to} rendered black"
+        );
+    }
+}
+
 impl Stage {
     async fn new() -> Self {
-        let instance = wgpu::Instance::default();
+        let instance = gpu::create_instance();
         let adapter = instance
             .request_adapter(&wgpu::RequestAdapterOptions::default())
             .await
@@ -61,31 +110,10 @@ impl Stage {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: None,
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            primitive: Default::default(),
-            depth_stencil: None,
-            multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: INTERNAL_RENDER_FORMAT,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        let pipeline =
+            create_performance_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT)
+                .await
+                .expect("production fullscreen pipeline");
         let line_pipeline =
             create_line_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT);
         let compositor = compositor::SceneCompositor::new(&device, &layout);

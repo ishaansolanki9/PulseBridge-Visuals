@@ -23,6 +23,8 @@ Windows whole-process termination was reproduced when Rekordbox process-loopback
 
 ## Hardware validation
 
-The complete audio/display path requires real Windows and macOS Rekordbox tests; CI is compile/package validation only. Use the matrices in the V2 brief for repeated Start/Stop, silence, process exit/restart, route/permission changes, display disconnect, sleep/wake, Escape/close/emergency exit, and representative GPUs/displays.
+Windows MSVC builds statically include DXC and select it explicitly instead of relying on an optional `dxcompiler.dll` and falling back to FXC. See [wgpu's compiler documentation](https://docs.rs/wgpu/30.0.0/wgpu/enum.Dx12Compiler.html). Diagnostics record the compiler choice and each pipeline's creation stage. A 12-second startup timeout records the latest GPU progress; it does not imply that settings or audio initialization failed. A worker still blocked inside a native GPU call retains exclusive renderer ownership after the caller times out. Further starts or probes return `GPU_RENDERER_BUSY` until it exits; restart the app if the driver remains stuck.
+
+The complete audio/display path requires real Windows and macOS Rekordbox tests. Windows CI additionally compiles the actual DX12 pipelines with a startup-time budget and checks representative scene readbacks, but it cannot validate a particular Intel/NVIDIA/AMD driver, fullscreen behavior, or live audio routing. Use the matrices in the V2 brief for repeated Start/Stop, silence, process exit/restart, route/permission changes, display disconnect, sleep/wake, Escape/close/emergency exit, and representative GPUs/displays.
 
 Before relying on it for an event, run a representative playlist for at least the party’s intended duration. Monitor Task Manager for continuously increasing memory, observe audio-to-light latency, and confirm a capture interruption produces ambient motion rather than a freeze, desktop, text error, white flash, or replay of old impacts.

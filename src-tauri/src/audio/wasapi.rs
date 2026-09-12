@@ -472,7 +472,7 @@ fn capture_rekordbox_session_output(
         }
     }
     Err(format!(
-        "REKORDBOX_SESSION_CAPTURE_FAILED: Rekordbox audio endpoints were found but did not provide live audio ({})",
+        "REKORDBOX_SESSION_CAPTURE_FAILED: Rekordbox audio endpoints were found but did not provide live audio ({}). Play a track and enable PC MASTER OUT in Rekordbox; keep the controller ASIO device as the primary output",
         failures.join("; ")
     ))
 }
@@ -598,7 +598,7 @@ fn capture_automatic_output(
         }
     }
     Err(format!(
-        "NO_ACTIVE_OUTPUT_SIGNAL: checked {endpoint_count} Windows output(s) without finding live audio ({})",
+        "NO_ACTIVE_OUTPUT_SIGNAL: checked {endpoint_count} Windows output(s) without finding live audio ({}). Play audio on a Windows output; if Rekordbox uses ASIO, enable PC MASTER OUT",
         failures.join("; ")
     ))
 }

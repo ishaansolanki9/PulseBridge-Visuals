@@ -46,6 +46,10 @@ Whenever WGSL visual math changes, preserve the preview's palette and luminance 
 
 Cross-target type checking from macOS may require `llvm-rc` for Tauri's Windows resources. The real Windows build remains `scripts/build-windows.ps1`; a Rust target `cargo check` is not installer or hardware validation.
 
+Windows MSVC builds include the statically linked DXC shader compiler through wgpu's `static-dxc` feature. The locked compiler dependency downloads and verifies its native build archive during the first Windows build; installed users do not need a separate `dxcompiler.dll`. `visuals/gpu.rs` supplies the shared instance policy for live output, diagnostic probes, and auditions. Keep all three paths aligned.
+
+Run `cargo test --manifest-path src-tauri/Cargo.toml native_pipeline_startup_audition -- --ignored --nocapture` to compile all production pipeline types and read back representative scenes. The pipeline setup must finish within the live 12-second startup budget. Windows CI runs this in a separate step with a two-minute deadline so a compiler hang cannot block packaging indefinitely. WGSL validation alone does not exercise DX12 shader compilation or the driver. The test renders offscreen and opens no audio device; real Intel Arc/fullscreen/Rekordbox validation is still separate.
+
 ## Release
 
 Clean unsigned bundle commands are:

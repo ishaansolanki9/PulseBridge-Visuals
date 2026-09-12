@@ -39,6 +39,9 @@ jobs:
       - run: cargo fmt --manifest-path src-tauri/Cargo.toml --all -- --check
       - run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
       - run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Exercise native DX12 pipeline startup
+        timeout-minutes: 2
+        run: cargo test --manifest-path src-tauri/Cargo.toml native_pipeline_startup_audition -- --ignored --nocapture
       - run: npm run tauri -- build --bundles nsis
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4

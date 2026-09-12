@@ -17,6 +17,12 @@ pub(super) struct SceneCompositor {
 
 impl SceneCompositor {
     pub fn new(device: &wgpu::Device, scene_layout: &wgpu::BindGroupLayout) -> Self {
+        let stage = diagnostics::begin_stage(
+            "renderer.pipeline.compositor",
+            "GPU_COMPOSITOR_PIPELINE_BEGIN",
+            "Creating the scene dissolve pipeline",
+            serde_json::Value::Null,
+        );
         let uniforms = std::array::from_fn(|_| {
             device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                 label: Some("Isolated scene parameters"),
@@ -111,6 +117,11 @@ impl SceneCompositor {
             multiview_mask: None,
             cache: None,
         });
+        stage.pass(
+            "GPU_COMPOSITOR_PIPELINE_CREATED",
+            "Scene dissolve pipeline created",
+            serde_json::Value::Null,
+        );
         Self {
             textures: [a, b],
             views,

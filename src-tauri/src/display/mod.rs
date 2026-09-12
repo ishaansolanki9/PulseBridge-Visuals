@@ -512,11 +512,23 @@ impl PerformanceManager {
                 return Err(format!("Performance renderer failed: {error}"));
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
+                let progress = lock_unpoisoned(&self.renderer_status).clone();
+                let message = format!(
+                    "GPU_STARTUP_TIMEOUT: renderer startup exceeded {} seconds during '{}'. GPU: {} ({}).",
+                    RENDERER_START_TIMEOUT.as_secs(),
+                    progress.message.as_deref().unwrap_or("initialization"),
+                    progress.adapter.as_deref().unwrap_or("unknown"),
+                    progress.backend.as_deref().unwrap_or("unknown"),
+                );
+                diagnostics::critical_event(
+                    "error",
+                    "renderer.startup.timeout",
+                    "GPU_STARTUP_TIMEOUT",
+                    &message,
+                    serde_json::json!({ "renderer": progress }),
+                );
                 rollback_startup(window, stop_requested, allow_close, workers);
-                return Err(format!(
-                    "Performance renderer did not produce a frame within {} seconds",
-                    RENDERER_START_TIMEOUT.as_secs()
-                ));
+                return Err(message);
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 rollback_startup(window, stop_requested, allow_close, workers);

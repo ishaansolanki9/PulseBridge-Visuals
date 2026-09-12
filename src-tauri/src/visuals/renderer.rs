@@ -1,5 +1,7 @@
 #[path = "compositor.rs"]
 mod compositor;
+#[path = "gpu.rs"]
+mod gpu;
 
 use std::{
     sync::{
@@ -77,16 +79,18 @@ pub struct PreparedRendererSurface {
     surface: wgpu::Surface<'static>,
     width: u32,
     height: u32,
+    lease: gpu::RendererLease<'static>,
 }
 
 pub fn prepare_renderer_surface(window: &Window) -> Result<PreparedRendererSurface, String> {
+    let lease = gpu::RendererLease::acquire()?;
     let instance_stage = diagnostics::begin_stage(
         "renderer.instance",
         "GPU_INSTANCE_CREATE_BEGIN",
         "Creating the wgpu instance",
         serde_json::Value::Null,
     );
-    let instance = match std::panic::catch_unwind(wgpu::Instance::default) {
+    let instance = match std::panic::catch_unwind(gpu::create_instance) {
         Ok(instance) => {
             instance_stage.pass(
                 "GPU_INSTANCE_CREATED",
@@ -111,6 +115,7 @@ pub fn prepare_renderer_surface(window: &Window) -> Result<PreparedRendererSurfa
         surface,
         width,
         height,
+        lease,
     })
 }
 
@@ -278,6 +283,7 @@ impl Renderer {
             surface,
             width,
             height,
+            lease: _lease,
         } = prepared_surface;
         let adapter_stage = diagnostics::begin_stage(
             "renderer.adapter",
@@ -420,34 +426,20 @@ impl Renderer {
             bind_group_layouts: &[Some(&bind_group_layout)],
             immediate_size: 0,
         });
-        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("Performance shader pipeline"),
-            layout: Some(&pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &shader,
-                entry_point: Some("vs_main"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            primitive: wgpu::PrimitiveState::default(),
-            depth_stencil: None,
-            multisample: wgpu::MultisampleState::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &shader,
-                entry_point: Some("fs_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: INTERNAL_RENDER_FORMAT,
-                    blend: Some(wgpu::BlendState::REPLACE),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+        update_startup_progress(
+            &status,
+            &stop_requested,
+            "Compiling fullscreen scene pipeline",
+        )?;
+        let pipeline =
+            create_performance_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT)
+                .await?;
+        update_startup_progress(&status, &stop_requested, "Compiling 3D line pipeline")?;
         let line_pipeline =
             create_line_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT);
+        update_startup_progress(&status, &stop_requested, "Compiling scene compositor")?;
         let compositor = compositor::SceneCompositor::new(&device, &bind_group_layout);
+        update_startup_progress(&status, &stop_requested, "Preparing first GPU frame")?;
         if let Some(error) = pipeline_scope.pop().await {
             let message = format!("GPU_PIPELINE_CREATE_FAILED: {error}");
             pipeline_stage.error(
@@ -987,11 +979,12 @@ fn transition_renderer_failure(
 }
 
 pub fn probe_renderer(safe_mode: bool) -> Result<DiagnosticRendererInfo, String> {
+    let _lease = gpu::RendererLease::acquire()?;
     pollster::block_on(probe_renderer_async(safe_mode))
 }
 
 async fn probe_renderer_async(safe_mode: bool) -> Result<DiagnosticRendererInfo, String> {
-    let instance = wgpu::Instance::default();
+    let instance = gpu::create_instance();
     let primary_options = wgpu::RequestAdapterOptions {
         power_preference: if safe_mode {
             wgpu::PowerPreference::LowPower
@@ -1078,37 +1071,10 @@ async fn probe_renderer_async(safe_mode: bool) -> Result<DiagnosticRendererInfo,
         bind_group_layouts: &[Some(&bind_group_layout)],
         immediate_size: 0,
     });
-    let _pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some("PulseBridge diagnostic pipeline"),
-        layout: Some(&pipeline_layout),
-        vertex: wgpu::VertexState {
-            module: &shader,
-            entry_point: Some("vs_main"),
-            compilation_options: Default::default(),
-            buffers: &[],
-        },
-        primitive: wgpu::PrimitiveState::default(),
-        depth_stencil: None,
-        multisample: wgpu::MultisampleState::default(),
-        fragment: Some(wgpu::FragmentState {
-            module: &shader,
-            entry_point: Some("fs_main"),
-            compilation_options: Default::default(),
-            targets: &[Some(wgpu::ColorTargetState {
-                format: wgpu::TextureFormat::Bgra8UnormSrgb,
-                blend: Some(wgpu::BlendState::REPLACE),
-                write_mask: wgpu::ColorWrites::ALL,
-            })],
-        }),
-        multiview_mask: None,
-        cache: None,
-    });
-    let _lines = create_line_pipeline(
-        &device,
-        &shader,
-        &pipeline_layout,
-        wgpu::TextureFormat::Bgra8UnormSrgb,
-    );
+    let _pipeline =
+        create_performance_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT)
+            .await?;
+    let _lines = create_line_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT);
     let _compositor = compositor::SceneCompositor::new(&device, &bind_group_layout);
     if let Some(error) = pipeline_scope.pop().await {
         return Err(format!("GPU_PIPELINE_CREATE_FAILED: {error}"));
@@ -1270,11 +1236,96 @@ mod tests {
         let (width, height) = performance_render_size(3_840, 2_160);
         assert_eq!((width, height), (1_920, 1_080));
     }
+
+    #[test]
+    fn cancelled_startup_keeps_its_last_progress_and_skips_the_next_pipeline() {
+        let status = Mutex::new(RendererStatus {
+            message: Some("Compiling fullscreen scene pipeline".to_string()),
+            ..Default::default()
+        });
+        let stop = AtomicBool::new(true);
+        assert!(
+            super::update_startup_progress(&status, &stop, "Compiling 3D line pipeline").is_err()
+        );
+        assert_eq!(
+            status.lock().unwrap().message.as_deref(),
+            Some("Compiling fullscreen scene pipeline")
+        );
+    }
 }
 
 #[cfg(test)]
 #[path = "audition.rs"]
 mod audition;
+
+async fn create_performance_pipeline(
+    device: &wgpu::Device,
+    shader: &wgpu::ShaderModule,
+    layout: &wgpu::PipelineLayout,
+    format: wgpu::TextureFormat,
+) -> Result<wgpu::RenderPipeline, String> {
+    let stage = diagnostics::begin_stage(
+        "renderer.pipeline.fullscreen",
+        "GPU_FULLSCREEN_PIPELINE_BEGIN",
+        "Compiling the fullscreen scene pipeline",
+        serde_json::Value::Null,
+    );
+    let scope = device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some("Performance shader pipeline"),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module: shader,
+            entry_point: Some("vs_main"),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        primitive: wgpu::PrimitiveState::default(),
+        depth_stencil: None,
+        multisample: wgpu::MultisampleState::default(),
+        fragment: Some(wgpu::FragmentState {
+            module: shader,
+            entry_point: Some("fs_main"),
+            compilation_options: Default::default(),
+            targets: &[Some(wgpu::ColorTargetState {
+                format,
+                blend: Some(wgpu::BlendState::REPLACE),
+                write_mask: wgpu::ColorWrites::ALL,
+            })],
+        }),
+        multiview_mask: None,
+        cache: None,
+    });
+    if let Some(error) = scope.pop().await {
+        let message = format!("GPU_PIPELINE_CREATE_FAILED: fullscreen pipeline: {error}");
+        stage.error(
+            "GPU_PIPELINE_CREATE_FAILED",
+            &message,
+            serde_json::Value::Null,
+        );
+        return Err(message);
+    }
+    stage.pass(
+        "GPU_FULLSCREEN_PIPELINE_CREATED",
+        "Fullscreen scene pipeline compiled",
+        serde_json::Value::Null,
+    );
+    Ok(pipeline)
+}
+
+fn update_startup_progress(
+    status: &Mutex<RendererStatus>,
+    stop: &AtomicBool,
+    message: &str,
+) -> Result<(), String> {
+    if stop.load(Ordering::Acquire) {
+        return Err("GPU_STARTUP_CANCELLED: renderer startup was stopped".to_string());
+    }
+    let mut next = lock_renderer_status(status);
+    next.message = Some(message.to_string());
+    set_renderer_status(status, next);
+    Ok(())
+}
 
 fn create_line_pipeline(
     device: &wgpu::Device,
@@ -1282,7 +1333,13 @@ fn create_line_pipeline(
     layout: &wgpu::PipelineLayout,
     format: wgpu::TextureFormat,
 ) -> wgpu::RenderPipeline {
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+    let stage = diagnostics::begin_stage(
+        "renderer.pipeline.lines",
+        "GPU_LINE_PIPELINE_BEGIN",
+        "Compiling the 3D line pipeline",
+        serde_json::Value::Null,
+    );
+    let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some("Reactive emissive line geometry"),
         layout: Some(layout),
         vertex: wgpu::VertexState {
@@ -1306,7 +1363,13 @@ fn create_line_pipeline(
         }),
         multiview_mask: None,
         cache: None,
-    })
+    });
+    stage.pass(
+        "GPU_LINE_PIPELINE_CREATED",
+        "3D line pipeline compiled",
+        serde_json::Value::Null,
+    );
+    pipeline
 }
 fn draw_line_scenes(
     pass: &mut wgpu::RenderPass<'_>,
