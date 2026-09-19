@@ -49,6 +49,19 @@ jobs:
           if ($tests.Count -ne 1) { throw "Expected one freshly built native test executable" }
           & ($tests[0].FullName) native_pipeline_startup_audition --ignored --nocapture
           exit $LASTEXITCODE
+      - name: Build the native startup smoke application
+        run: npm run tauri -- build --debug --no-bundle
+      - name: Exercise Windows fullscreen Start and Stop
+        timeout-minutes: 4
+        shell: pwsh
+        run: ./scripts/smoke-windows.ps1
+      - name: Upload native startup logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PulseBridge-Windows-Startup-Logs
+          path: src-tauri/target/windows-startup-smoke
+          if-no-files-found: ignore
       - run: npm run tauri -- build --bundles nsis
       - name: Upload Windows installer
         uses: actions/upload-artifact@v4

@@ -9,7 +9,8 @@ struct Stage {
     startup_duration: Duration,
     device: wgpu::Device,
     queue: wgpu::Queue,
-    pipeline: wgpu::RenderPipeline,
+    pipeline: Option<wgpu::RenderPipeline>,
+    pipelines: Option<scene_pipeline::ScenePipelines>,
     line_pipeline: wgpu::RenderPipeline,
     compositor: compositor::SceneCompositor,
     binding: wgpu::BindGroup,
@@ -26,7 +27,7 @@ fn native_pipeline_startup_audition() {
     let _blitter = TextureBlitterBuilder::new(&stage.device, wgpu::TextureFormat::Bgra8UnormSrgb)
         .sample_type(wgpu::FilterMode::Linear)
         .build();
-    // Live output prepares the instance/surface before starting its 12-second
+    // Live output prepares the instance/surface before starting its bounded
     // worker deadline. Do not charge cold DX12 instance loading to that budget.
     let elapsed = stage.startup_duration + blitter_started.elapsed();
     eprintln!(
@@ -39,6 +40,8 @@ fn native_pipeline_startup_audition() {
     fs::create_dir_all(&output).unwrap();
     let target = stage.target(160, 100);
     // Legacy 2D, Tron cycling/held, new 2D, instanced 3D, and an image dissolve.
+    let frames_started = Instant::now();
+    let mut first_frame_duration = Duration::ZERO;
     for (index, (from, to)) in [(0, 0), (32, 32), (33, 33), (45, 45), (49, 49), (33, 49)]
         .into_iter()
         .enumerate()
@@ -57,6 +60,9 @@ fn native_pipeline_startup_audition() {
         }
         let file = output.join(format!("scene-{index}.ppm"));
         let frame_ms = stage.draw(uniforms, &target, Some(&file));
+        if index == 0 {
+            first_frame_duration = elapsed + frames_started.elapsed();
+        }
         eprintln!("Native startup frame {from}/{to}: {frame_ms:.3}ms");
         let image = fs::read(&file).unwrap();
         let pixels = image.splitn(4, |byte| *byte == b'\n').nth(3).unwrap();
@@ -66,14 +72,19 @@ fn native_pipeline_startup_audition() {
             "scene {from}/{to} rendered black"
         );
     }
+    eprintln!("First scene compiled and GPU-completed: {first_frame_duration:?}");
     assert!(
-        elapsed < Duration::from_secs(12),
-        "native pipelines exceeded the live startup budget: {elapsed:?}"
+        first_frame_duration < GPU_STARTUP_TIMEOUT,
+        "first completed scene exceeded the live startup budget: {first_frame_duration:?}"
     );
 }
 
 impl Stage {
     async fn new() -> Self {
+        Self::with_reference(false).await
+    }
+
+    async fn with_reference(reference: bool) -> Self {
         let instance_started = Instant::now();
         let instance = gpu::create_instance();
         eprintln!(
@@ -129,14 +140,38 @@ impl Stage {
             bind_group_layouts: &[Some(&layout)],
             immediate_size: 0,
         });
-        let pipeline =
-            create_performance_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT)
+        let pipeline = if reference {
+            Some(
+                create_performance_pipeline(
+                    &device,
+                    &shader,
+                    &pipeline_layout,
+                    INTERNAL_RENDER_FORMAT,
+                )
                 .await
-                .expect("production fullscreen pipeline");
+                .expect("reference fullscreen pipeline"),
+            )
+        } else {
+            None
+        };
         let line_pipeline =
             create_line_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT);
         let compositor = compositor::SceneCompositor::new(&device, &layout);
+        let pipelines = if reference {
+            None
+        } else {
+            Some(
+                scene_pipeline::ScenePipelines::new(
+                    device.clone(),
+                    pipeline_layout,
+                    Arc::new(AtomicBool::new(false)),
+                    Arc::new(gpu::RendererLease::acquire().unwrap()),
+                )
+                .unwrap(),
+            )
+        };
         Self {
+            pipelines,
             startup_duration: worker_started.elapsed(),
             compositor,
             line_pipeline,
@@ -169,6 +204,26 @@ impl Stage {
         target: &wgpu::Texture,
         capture: Option<&Path>,
     ) -> f64 {
+        let pipelines = if let Some(cache) = &mut self.pipelines {
+            let keys = [
+                scene_shader::SceneKey::for_scene(uniforms.style_a[0], &uniforms),
+                scene_shader::SceneKey::for_scene(uniforms.style_a[1], &uniforms),
+            ];
+            let started = Instant::now();
+            loop {
+                if let Some(pipelines) = cache.get(keys).expect("specialized pipelines") {
+                    break pipelines;
+                }
+                assert!(
+                    started.elapsed() < GPU_STARTUP_TIMEOUT,
+                    "scene compilation timed out"
+                );
+                thread::sleep(Duration::from_millis(5));
+            }
+        } else {
+            let pipeline = self.pipeline.as_ref().unwrap();
+            [pipeline.clone(), pipeline.clone()]
+        };
         self.queue
             .write_buffer(&self.uniform, 0, bytemuck::bytes_of(&uniforms));
         let view = target.create_view(&Default::default());
@@ -178,7 +233,7 @@ impl Stage {
             &self.queue,
             &mut encoder,
             &view,
-            &self.pipeline,
+            [&pipelines[0], &pipelines[1]],
             &self.line_pipeline,
             uniforms,
         ) {
@@ -195,7 +250,7 @@ impl Stage {
                 })],
                 ..Default::default()
             });
-            pass.set_pipeline(&self.pipeline);
+            pass.set_pipeline(&pipelines[0]);
             pass.set_bind_group(0, &self.binding, &[]);
             pass.draw(0..3, 0..1);
             draw_line_scenes(&mut pass, &self.line_pipeline, &uniforms);
@@ -1050,4 +1105,55 @@ fn native_expanded_motion_audition() {
     }
     eprint!("{report}");
     fs::write(output.join("timings.txt"), report).unwrap();
+}
+
+#[test]
+#[ignore = "native GPU comparison of specialized and original scene programs"]
+fn native_specialized_scene_equivalence() {
+    let mut reference = pollster::block_on(Stage::with_reference(true));
+    let mut specialized = pollster::block_on(Stage::new());
+    let output = Path::new(env!("CARGO_MANIFEST_DIR")).join("target/scene-specialization");
+    fs::create_dir_all(&output).unwrap();
+    let reference_target = reference.target(160, 100);
+    let specialized_target = specialized.target(160, 100);
+    let held = (0..=52).filter(|id| *id != 32).map(|id| (id, 0, 7.2));
+    let cycles = (0..3).flat_map(|dimension| {
+        (0..16).map(move |chapter| (32, dimension, chapter as f32 * 8.0 + 7.2))
+    });
+    let mut compared = 0;
+    let mut largest_delta = 0;
+    for (id, dimension, clock) in held.chain(cycles) {
+        let mut uniforms = fixture(
+            id,
+            4.0,
+            1.0,
+            (160, 100),
+            SmoothedVisualState::default(),
+            0.0,
+            clock,
+        );
+        uniforms.chromatic[3] = dimension as f32;
+        uniforms.reactive = [0.7, 0.45, 0.8, 0.4];
+        uniforms.signal_history = [[0.3, 0.6, 0.2, 0.5]; 32];
+        let expected = output.join("reference.ppm");
+        let actual = output.join("specialized.ppm");
+        reference.draw(uniforms, &reference_target, Some(&expected));
+        specialized.draw(uniforms, &specialized_target, Some(&actual));
+        let expected = fs::read(expected).unwrap();
+        let actual = fs::read(actual).unwrap();
+        assert_eq!(expected.len(), actual.len());
+        let max_delta = expected
+            .iter()
+            .zip(&actual)
+            .map(|(a, b)| a.abs_diff(*b))
+            .max()
+            .unwrap();
+        largest_delta = largest_delta.max(max_delta);
+        assert!(
+            max_delta <= 2,
+            "scene {id}, dimension {dimension}, clock {clock}: delta {max_delta}"
+        );
+        compared += 1;
+    }
+    eprintln!("Compared {compared} held/cycling frames against the original shader; largest channel difference: {largest_delta}/255");
 }

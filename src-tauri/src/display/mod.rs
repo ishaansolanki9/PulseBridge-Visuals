@@ -21,10 +21,10 @@ use crate::{
     resilience::PerformancePowerGuard,
     visuals::{
         prepare_renderer_surface, run_renderer, RendererLifecycle, RendererStatus, VisualSettings,
+        GPU_STARTUP_TIMEOUT,
     },
 };
 
-const RENDERER_START_TIMEOUT: Duration = Duration::from_secs(12);
 const WORKER_JOIN_TIMEOUT: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, Serialize)]
@@ -128,6 +128,7 @@ struct PerformanceSession {
 
 pub struct PerformanceManager {
     operation: Mutex<()>,
+    startup_stop: Mutex<Option<Arc<AtomicBool>>>,
     session: Mutex<Option<PerformanceSession>>,
     lifecycle: Arc<Mutex<RuntimeLifecycle>>,
     settings: Arc<RwLock<VisualSettings>>,
@@ -144,6 +145,7 @@ impl PerformanceManager {
     pub fn new(settings: VisualSettings, log_path: Option<PathBuf>) -> Self {
         Self {
             operation: Mutex::new(()),
+            startup_stop: Mutex::new(None),
             session: Mutex::new(None),
             lifecycle: Arc::new(Mutex::new(RuntimeLifecycle::Stopped)),
             settings: Arc::new(RwLock::new(settings.sanitized())),
@@ -240,6 +242,8 @@ impl PerformanceManager {
     pub fn start(&self, app: &AppHandle) -> Result<(), String> {
         let _operation = lock_unpoisoned(&self.operation);
         self.stop_inner()?;
+        let stop_requested = Arc::new(AtomicBool::new(false));
+        *lock_unpoisoned(&self.startup_stop) = Some(Arc::clone(&stop_requested));
         self.apply_lifecycle(LifecycleEvent::Start);
         *lock_unpoisoned(&self.last_error) = None;
         *lock_unpoisoned(&self.capture_status) = CaptureStatus::default();
@@ -269,15 +273,29 @@ impl PerformanceManager {
             "Starting performance output",
         );
 
-        let result = self.start_transaction(app);
+        let result = self.start_transaction(app, stop_requested);
+        *lock_unpoisoned(&self.startup_stop) = None;
         if let Err(error) = &result {
-            self.record_failure("performance.start.failed", error);
+            if error.contains("GPU_STARTUP_CANCELLED:") {
+                self.apply_lifecycle(LifecycleEvent::Stop);
+                diagnostics::event(
+                    "info",
+                    "performance.start.cancelled",
+                    "Performance startup cancelled",
+                );
+            } else {
+                self.record_failure("performance.start.failed", error);
+            }
             diagnostics::mark_clean_exit("Recoverable performance startup failure was cleaned up");
         }
         result
     }
 
-    fn start_transaction(&self, app: &AppHandle) -> Result<(), String> {
+    fn start_transaction(
+        &self,
+        app: &AppHandle,
+        stop_requested: Arc<AtomicBool>,
+    ) -> Result<(), String> {
         let display_stage = diagnostics::begin_stage(
             "display.enumeration",
             "DISPLAY_ENUMERATION_BEGIN",
@@ -405,7 +423,10 @@ impl PerformanceManager {
             }
         };
 
-        let stop_requested = Arc::new(AtomicBool::new(false));
+        if stop_requested.load(Ordering::Acquire) {
+            let _ = window.close();
+            return Err("GPU_STARTUP_CANCELLED: startup was stopped".to_string());
+        }
         let allow_close = Arc::new(AtomicBool::new(false));
         install_output_close_handler(&window, &stop_requested, &allow_close);
         let ring = Arc::new(PcmRingBuffer::new(settings.pcm_buffer_seconds));
@@ -504,7 +525,7 @@ impl PerformanceManager {
         };
         workers.push(("renderer", renderer_worker));
 
-        let readiness = ready_receiver.recv_timeout(RENDERER_START_TIMEOUT);
+        let readiness = wait_for_renderer(&ready_receiver, &stop_requested, GPU_STARTUP_TIMEOUT);
         let info = match readiness {
             Ok(Ok(info)) => info,
             Ok(Err(error)) => {
@@ -514,11 +535,12 @@ impl PerformanceManager {
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 let progress = lock_unpoisoned(&self.renderer_status).clone();
                 let message = format!(
-                    "GPU_STARTUP_TIMEOUT: renderer startup exceeded {} seconds during '{}'. GPU: {} ({}).",
-                    RENDERER_START_TIMEOUT.as_secs(),
+                    "GPU_STARTUP_TIMEOUT: renderer startup exceeded {} seconds during '{}'. GPU: {} ({}). Build: {}.",
+                    GPU_STARTUP_TIMEOUT.as_secs(),
                     progress.message.as_deref().unwrap_or("initialization"),
                     progress.adapter.as_deref().unwrap_or("unknown"),
                     progress.backend.as_deref().unwrap_or("unknown"),
+                    env!("PULSEBRIDGE_REVISION"),
                 );
                 diagnostics::critical_event(
                     "error",
@@ -581,6 +603,9 @@ impl PerformanceManager {
     }
 
     pub fn stop(&self) -> Result<(), String> {
+        if let Some(stop) = lock_unpoisoned(&self.startup_stop).as_ref() {
+            stop.store(true, Ordering::Release);
+        }
         let _operation = lock_unpoisoned(&self.operation);
         self.stop_inner()
     }
@@ -658,6 +683,33 @@ impl Drop for PerformanceManager {
             if let Some(session) = session.take() {
                 cleanup_session(session);
             }
+        }
+    }
+}
+
+fn wait_for_renderer<T>(
+    receiver: &mpsc::Receiver<Result<T, String>>,
+    stop: &AtomicBool,
+    timeout: Duration,
+) -> Result<Result<T, String>, mpsc::RecvTimeoutError> {
+    let deadline = Instant::now() + timeout;
+    loop {
+        // Preserve a real GPU failure already delivered by a worker that also
+        // raised stop; that is not a user cancellation.
+        match receiver.try_recv() {
+            Ok(result) => return Ok(result),
+            Err(mpsc::TryRecvError::Disconnected) => {
+                return Err(mpsc::RecvTimeoutError::Disconnected)
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+        }
+        if stop.load(Ordering::Acquire) {
+            return Ok(Err("GPU_STARTUP_CANCELLED: startup was stopped".to_string()));
+        }
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        match receiver.recv_timeout(remaining.min(Duration::from_millis(50))) {
+            Err(mpsc::RecvTimeoutError::Timeout) if Instant::now() < deadline => continue,
+            result => return result,
         }
     }
 }
@@ -868,6 +920,44 @@ pub fn enumerate_displays(app: &AppHandle) -> Result<Vec<DisplayInfo>, String> {
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn cancelling_startup_does_not_wait_for_a_blocked_gpu_worker() {
+        let (_sender, receiver) = std::sync::mpsc::channel::<Result<(), String>>();
+        let stop = std::sync::atomic::AtomicBool::new(true);
+        let started = std::time::Instant::now();
+        let result = super::wait_for_renderer(&receiver, &stop, super::GPU_STARTUP_TIMEOUT);
+        assert!(result
+            .unwrap()
+            .unwrap_err()
+            .contains("GPU_STARTUP_CANCELLED"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
+
+    #[test]
+    fn startup_preserves_worker_failure_when_the_worker_also_stops() {
+        let (sender, receiver) = std::sync::mpsc::channel::<Result<(), String>>();
+        sender
+            .send(Err("GPU_DEVICE_LOST: actual driver failure".into()))
+            .unwrap();
+        let stop = std::sync::atomic::AtomicBool::new(true);
+        assert_eq!(
+            super::wait_for_renderer(&receiver, &stop, super::GPU_STARTUP_TIMEOUT)
+                .unwrap()
+                .unwrap_err(),
+            "GPU_DEVICE_LOST: actual driver failure"
+        );
+    }
+
+    #[test]
+    fn readiness_wait_still_has_a_deadline() {
+        let (_sender, receiver) = std::sync::mpsc::channel::<Result<(), String>>();
+        let stop = std::sync::atomic::AtomicBool::new(false);
+        assert_eq!(
+            super::wait_for_renderer(&receiver, &stop, std::time::Duration::ZERO),
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout)
+        );
+    }
+
     use super::*;
 
     #[test]

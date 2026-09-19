@@ -123,11 +123,12 @@ export function ControlApp() {
     setBusy(true);
     setError(null);
     try {
-      if (runtime?.running) await controlTransport.stop();
+      if (runtime?.running || runtime?.lifecycle === "starting") await controlTransport.stop();
       else await controlTransport.start(settings);
       setRuntime(await controlTransport.getState());
     } catch (reason) {
-      setError(messageFrom(reason));
+      const message = messageFrom(reason);
+      if (!message.includes("GPU_STARTUP_CANCELLED:")) setError(message);
     } finally {
       setBusy(false);
     }
@@ -410,10 +411,10 @@ export function ControlApp() {
           className={`launch-button ${runtime?.running ? "is-stop" : ""}`}
           type="button"
           onClick={() => void toggleOutput()}
-          disabled={busy || diagnosticBusy || (!runtime?.running && !canStart)}
+          disabled={(busy && runtime?.lifecycle !== "starting") || diagnosticBusy || (!runtime?.running && runtime?.lifecycle !== "starting" && !canStart)}
         >
           <i>{runtime?.running ? <StopIcon /> : <PlayIcon />}</i>
-          <span>{busy ? "Starting and checking GPU…" : runtime?.running ? "Stop visuals" : runtime?.lifecycle === "failed" ? "Retry live visuals" : "Start live visuals"}</span>
+          <span>{runtime?.lifecycle === "starting" ? "Cancel startup" : busy ? "Checking GPU…" : runtime?.running ? "Stop visuals" : runtime?.lifecycle === "failed" ? "Retry live visuals" : "Start live visuals"}</span>
         </button>
       </footer>
     </main>
@@ -506,6 +507,8 @@ function sourceMessage(source: AudioSourceInfo | undefined, native: boolean) {
 }
 
 function launchHint(runtime: RuntimeSnapshot | null, source: AudioSourceInfo | undefined, native: boolean) {
+  if (runtime?.lifecycle === "starting") return runtime.renderer.message ?? "Preparing the selected scene…";
+  if (runtime?.running && runtime.renderer.message) return runtime.renderer.message;
   if (runtime?.running) return runtime.audio.message ?? `${runtime.audio.state} · full screen`;
   if (runtime?.lifecycle === "failed") return "The controller stayed open · retry or inspect the diagnostic log";
   if (!native) return "Ambient preview only here · live capture is in the desktop package";

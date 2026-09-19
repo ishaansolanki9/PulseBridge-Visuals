@@ -308,6 +308,14 @@ pub fn initialize(app: &AppHandle) -> Result<PathBuf, String> {
         .path()
         .app_log_dir()
         .map_err(|error| error.to_string())?;
+    #[cfg(debug_assertions)]
+    let directory = if std::env::var_os("PULSEBRIDGE_SMOKE_AUTOSTART").is_some() {
+        std::env::var_os("PULSEBRIDGE_SMOKE_LOG_DIR")
+            .map(PathBuf::from)
+            .unwrap_or(directory)
+    } else {
+        directory
+    };
     fs::create_dir_all(&directory).map_err(|error| error.to_string())?;
     let path = directory.join(LOG_FILE_NAME);
     let marker_path = directory.join(MARKER_FILE_NAME);
@@ -324,6 +332,8 @@ pub fn initialize(app: &AppHandle) -> Result<PathBuf, String> {
         "PulseBridge native runtime starting",
         json!({
             "version": env!("CARGO_PKG_VERSION"),
+            "revision": env!("PULSEBRIDGE_REVISION"),
+            "debugBuild": cfg!(debug_assertions),
             "target": env!("PULSEBRIDGE_TARGET"),
             "arch": std::env::consts::ARCH,
             "osVersion": os_version(),

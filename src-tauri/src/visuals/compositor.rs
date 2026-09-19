@@ -144,7 +144,7 @@ impl SceneCompositor {
         queue: &wgpu::Queue,
         encoder: &mut wgpu::CommandEncoder,
         target: &wgpu::TextureView,
-        base: &wgpu::RenderPipeline,
+        base: [&wgpu::RenderPipeline; 2],
         lines: &wgpu::RenderPipeline,
         uniforms: VisualUniforms,
     ) -> bool {
@@ -194,7 +194,7 @@ impl SceneCompositor {
                 })],
                 ..Default::default()
             });
-            pass.set_pipeline(base);
+            pass.set_pipeline(base[index]);
             pass.set_bind_group(0, &self.bindings[index], &[]);
             pass.draw(0..3, 0..1);
             draw_line_scenes(&mut pass, lines, scene);

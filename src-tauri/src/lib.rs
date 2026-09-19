@@ -31,6 +31,12 @@ pub fn run() {
                 serde_json::Value::Null,
             );
             let settings = load_settings(app.handle());
+            #[cfg(debug_assertions)]
+            let settings = if std::env::var_os("PULSEBRIDGE_SMOKE_AUTOSTART").is_some() {
+                visuals::VisualSettings::default()
+            } else {
+                settings
+            };
             settings_stage.pass(
                 "SETTINGS_LOADED",
                 "Visual settings loaded",
@@ -55,7 +61,8 @@ pub fn run() {
                     if outcome.is_ok() {
                         std::thread::sleep(std::time::Duration::from_secs(1));
                     }
-                    let _ = manager.stop();
+                    let stop_outcome = manager.stop();
+                    let outcome = outcome.and(stop_outcome);
                     let (level, code, message, exit_code) = match outcome {
                         Ok(()) => (
                             "info",

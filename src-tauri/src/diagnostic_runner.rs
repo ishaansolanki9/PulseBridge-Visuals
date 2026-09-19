@@ -786,7 +786,7 @@ fn run_renderer_probe(safe_mode: bool, cancel: &AtomicBool, report: &mut Diagnos
         );
         return;
     }
-    let deadline = Instant::now() + Duration::from_secs(8);
+    let deadline = Instant::now() + crate::visuals::GPU_STARTUP_TIMEOUT;
     let result = loop {
         if cancel.load(Ordering::Acquire) {
             break Err("DIAGNOSTIC_CANCELLED: renderer validation cancelled".to_string());
@@ -797,10 +797,10 @@ fn run_renderer_probe(safe_mode: bool, cancel: &AtomicBool, report: &mut Diagnos
                 break Err("GPU_DIAGNOSTIC_FAILED: renderer probe exited".to_string());
             }
             Err(mpsc::TryRecvError::Empty) if Instant::now() >= deadline => {
-                break Err(
-                    "GPU_FIRST_FRAME_TIMEOUT: renderer validation exceeded eight seconds"
-                        .to_string(),
-                );
+                break Err(format!(
+                    "GPU_FIRST_FRAME_TIMEOUT: renderer validation exceeded {} seconds",
+                    crate::visuals::GPU_STARTUP_TIMEOUT.as_secs()
+                ));
             }
             Err(mpsc::TryRecvError::Empty) => thread::sleep(Duration::from_millis(25)),
         }

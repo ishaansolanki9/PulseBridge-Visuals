@@ -2,6 +2,11 @@
 mod compositor;
 #[path = "gpu.rs"]
 mod gpu;
+#[path = "scene_pipeline.rs"]
+mod scene_pipeline;
+#[path = "scene_shader.rs"]
+mod scene_shader;
+pub use scene_pipeline::GPU_STARTUP_TIMEOUT;
 
 use std::{
     sync::{
@@ -79,11 +84,11 @@ pub struct PreparedRendererSurface {
     surface: wgpu::Surface<'static>,
     width: u32,
     height: u32,
-    lease: gpu::RendererLease<'static>,
+    lease: Arc<gpu::RendererLease<'static>>,
 }
 
 pub fn prepare_renderer_surface(window: &Window) -> Result<PreparedRendererSurface, String> {
-    let lease = gpu::RendererLease::acquire()?;
+    let lease = Arc::new(gpu::RendererLease::acquire()?);
     let instance_stage = diagnostics::begin_stage(
         "renderer.instance",
         "GPU_INSTANCE_CREATE_BEGIN",
@@ -253,7 +258,8 @@ struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
-    pipeline: wgpu::RenderPipeline,
+    pipelines: scene_pipeline::ScenePipelines,
+    has_frame: bool,
     line_pipeline: wgpu::RenderPipeline,
     compositor: compositor::SceneCompositor,
     uniform_buffer: wgpu::Buffer,
@@ -283,8 +289,17 @@ impl Renderer {
             surface,
             width,
             height,
-            lease: _lease,
+            lease,
         } = prepared_surface;
+        #[cfg(debug_assertions)]
+        if std::env::var_os("PULSEBRIDGE_SMOKE_AUTOSTART").is_some() {
+            if let Some(delay) = std::env::var("PULSEBRIDGE_SMOKE_GPU_DELAY_MS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+            {
+                thread::sleep(Duration::from_millis(delay.min(20_000)));
+            }
+        }
         let adapter_stage = diagnostics::begin_stage(
             "renderer.adapter",
             "GPU_ADAPTER_REQUEST_BEGIN",
@@ -426,14 +441,6 @@ impl Renderer {
             bind_group_layouts: &[Some(&bind_group_layout)],
             immediate_size: 0,
         });
-        update_startup_progress(
-            &status,
-            &stop_requested,
-            "Compiling fullscreen scene pipeline",
-        )?;
-        let pipeline =
-            create_performance_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT)
-                .await?;
         update_startup_progress(&status, &stop_requested, "Compiling 3D line pipeline")?;
         let line_pipeline =
             create_line_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT);
@@ -469,6 +476,12 @@ impl Renderer {
             .sample_type(wgpu::FilterMode::Linear)
             .build();
 
+        let pipelines = scene_pipeline::ScenePipelines::new(
+            device.clone(),
+            pipeline_layout,
+            Arc::clone(&stop_requested),
+            Arc::clone(&lease),
+        )?;
         let mut renderer = Self {
             instance,
             window: window.clone(),
@@ -476,7 +489,8 @@ impl Renderer {
             device,
             queue,
             config,
-            pipeline,
+            pipelines,
+            has_frame: false,
             line_pipeline,
             compositor,
             uniform_buffer,
@@ -633,7 +647,10 @@ impl Renderer {
             let high_hit = (smoothed.high_hit * reaction_gain).clamp(0.0, 1.0);
             let energy_rise = (smoothed.energy_rise * reaction_gain).clamp(0.0, 1.0);
             signal_history.update([bass_hit, mid_motion, high_hit, energy_rise], delta);
-            spatial_clock += delta * (0.25 + drive * 0.65) * current_settings.motion * scene.motion;
+            if renderer.has_frame {
+                spatial_clock +=
+                    delta * (0.25 + drive * 0.65) * current_settings.motion * scene.motion;
+            }
             let spatial_quality = quality.detail(minimum_tier);
             let legacy_speed = (0.12 + drive * 1.38 + bass_hit * 0.18 + energy_rise * 0.24)
                 * intensities[0]
@@ -729,7 +746,7 @@ impl Renderer {
                     current_settings.dimension.id(),
                 ],
             };
-            let presented = renderer.render(uniforms)?;
+            let presented = renderer.render(uniforms, &status)?;
             if presented {
                 if let Some((sender, info)) = readiness.take() {
                     if let Some(stage) = first_present_stage.take() {
@@ -777,7 +794,32 @@ impl Renderer {
         Ok(())
     }
 
-    fn render(&mut self, uniforms: VisualUniforms) -> Result<bool, String> {
+    fn render(
+        &mut self,
+        uniforms: VisualUniforms,
+        status: &Mutex<RendererStatus>,
+    ) -> Result<bool, String> {
+        let keys = [
+            scene_shader::SceneKey::for_scene(uniforms.style_a[0], &uniforms),
+            scene_shader::SceneKey::for_scene(uniforms.style_a[1], &uniforms),
+        ];
+        let first_frame = !self.has_frame;
+        let pipelines = self.pipelines.get(keys)?;
+        if pipelines.is_some() && uniforms.style_a[..2].contains(&32.0) {
+            self.pipelines
+                .prefetch(scene_shader::SceneKey::upcoming(&uniforms))?;
+        }
+        let mut progress = lock_renderer_status(status);
+        if progress.state != RendererLifecycle::Failed {
+            progress.message = self
+                .pipelines
+                .progress()
+                .or_else(|| first_frame.then(|| "Preparing first GPU frame".into()));
+            set_renderer_status(status, progress);
+        }
+        if pipelines.is_none() && !self.has_frame {
+            return Ok(false);
+        }
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
         let frame = match self.surface.get_current_texture() {
@@ -824,17 +866,39 @@ impl Renderer {
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                 label: Some("Performance frame encoder"),
             });
-        if !self.compositor.draw(
-            &self.device,
-            &self.queue,
-            &mut encoder,
-            &self.render_view,
-            &self.pipeline,
-            &self.line_pipeline,
-            uniforms,
-        ) {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("Performance frame"),
+        if let Some(pipelines) = pipelines {
+            if !self.compositor.draw(
+                &self.device,
+                &self.queue,
+                &mut encoder,
+                &self.render_view,
+                [&pipelines[0], &pipelines[1]],
+                &self.line_pipeline,
+                uniforms,
+            ) {
+                let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                    label: Some("Performance frame"),
+                    color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                        view: &self.render_view,
+                        depth_slice: None,
+                        resolve_target: None,
+                        ops: wgpu::Operations {
+                            load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                            store: wgpu::StoreOp::Store,
+                        },
+                    })],
+                    ..Default::default()
+                });
+                pass.set_pipeline(&pipelines[0]);
+                pass.set_bind_group(0, &self.bind_group, &[]);
+                pass.draw(0..3, 0..1);
+                draw_line_scenes(&mut pass, &self.line_pipeline, &uniforms);
+            }
+            self.has_frame = true;
+        } else if uniforms.style_b[3] > 0.5 {
+            // Emergency blackout must remain immediate during scene compilation.
+            let _pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("Blackout while compiling"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &self.render_view,
                     depth_slice: None,
@@ -846,14 +910,18 @@ impl Renderer {
                 })],
                 ..Default::default()
             });
-            pass.set_pipeline(&self.pipeline);
-            pass.set_bind_group(0, &self.bind_group, &[]);
-            pass.draw(0..3, 0..1);
-            draw_line_scenes(&mut pass, &self.line_pipeline, &uniforms);
         }
         self.blitter
             .copy(&self.device, &mut encoder, &self.render_view, &view);
-        self.queue.submit(Some(encoder.finish()));
+        let submission = self.queue.submit(Some(encoder.finish()));
+        if first_frame {
+            self.device
+                .poll(wgpu::PollType::Wait {
+                    submission_index: Some(submission),
+                    timeout: Some(Duration::from_secs(30)),
+                })
+                .map_err(|error| format!("GPU_FIRST_FRAME_FAILED: {error}"))?;
+        }
         self.queue.present(frame);
         Ok(true)
     }
@@ -864,6 +932,7 @@ impl Renderer {
         self.render_view = render_view;
         self.render_width = width;
         self.render_height = height;
+        self.has_frame = false;
     }
 }
 
@@ -1072,7 +1141,7 @@ async fn probe_renderer_async(safe_mode: bool) -> Result<DiagnosticRendererInfo,
         immediate_size: 0,
     });
     let _pipeline =
-        create_performance_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT)
+        scene_pipeline::compile_scene(&device, &pipeline_layout, scene_shader::SceneKey::Held(0))
             .await?;
     let _lines = create_line_pipeline(&device, &shader, &pipeline_layout, INTERNAL_RENDER_FORMAT);
     let _compositor = compositor::SceneCompositor::new(&device, &bind_group_layout);
